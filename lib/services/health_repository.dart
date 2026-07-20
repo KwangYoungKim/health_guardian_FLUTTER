@@ -289,4 +289,25 @@ class HealthRepository {
       }
     }
   }
+
+  Future<void> addLocationMemo(String date, LocationMemo memo) async {
+    final memos = getMemos(date);
+    memos.add(memo);
+    await saveMemos(date, memos);
+  }
+
+  Future<void> updateLocationMemo(String date, LocationMemo updatedMemo) async {
+    final memos = getMemos(date);
+    final index = memos.indexWhere((m) => m.id == updatedMemo.id);
+    if (index != -1) {
+      memos[index] = updatedMemo;
+      await saveMemos(date, memos);
+    }
+  }
+
+  Future<void> deleteLocationMemo(String date, int memoId) async {
+    final memos = getMemos(date);
+    memos.removeWhere((m) => m.id == memoId);
+    await saveMemos(date, memos);
+  }
 }

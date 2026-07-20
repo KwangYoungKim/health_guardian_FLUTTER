@@ -406,6 +406,189 @@ class _WalkingScreenState extends State<WalkingScreen> {
     super.dispose();
   }
 
+  Future<void> _addCurrentLocationMemo([StateSetter? setDialogState]) async {
+    Position? currentPos = _lastKnownPosition;
+    if (currentPos == null) {
+      try {
+        currentPos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+      } catch (e) {
+        print("Error getting location: $e");
+      }
+    }
+
+    if (currentPos == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("현재 GPS 위치를 측정할 수 없습니다. 위치 권한을 확인해 주세요.")),
+        );
+      }
+      return;
+    }
+
+    final TextEditingController _memoTextController = TextEditingController();
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.edit_location_alt, color: Color(0xFF00E5FF)),
+            SizedBox(width: 8),
+            Text("📍 현위치 메모 추가", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "현재 위치: ${currentPos!.latitude.toStringAsFixed(4)}, ${currentPos.longitude.toStringAsFixed(4)}",
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _memoTextController,
+              style: const TextStyle(color: Colors.white),
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: "이 위치에 남길 메모를 입력하세요...",
+                hintStyle: TextStyle(color: Colors.white38),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00E5FF))),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+            onPressed: () async {
+              final text = _memoTextController.text.trim();
+              if (text.isEmpty) return;
+
+              final newMemo = LocationMemo(
+                id: DateTime.now().millisecondsSinceEpoch,
+                date: today,
+                lat: currentPos!.latitude,
+                lng: currentPos.longitude,
+                memo: text,
+                time: DateFormat('HH:mm').format(DateTime.now()),
+              );
+
+              await HealthRepository.instance.addLocationMemo(today, newMemo);
+              if (mounted) {
+                setState(() { _refreshTrigger++; });
+                if (setDialogState != null) setDialogState(() {});
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("📍 현위치 메모가 저장되었습니다.")),
+                );
+              }
+            },
+            child: const Text("저장", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editLocationMemo(LocationMemo m, [StateSetter? setDialogState]) async {
+    final TextEditingController _controller = TextEditingController(text: m.memo);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("✏️ 위치 메모 수정", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: _controller,
+          style: const TextStyle(color: Colors.white),
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: "수정할 메모를 입력하세요",
+            hintStyle: TextStyle(color: Colors.white38),
+            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00E5FF))),
+            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+            onPressed: () async {
+              final newText = _controller.text.trim();
+              if (newText.isEmpty) return;
+
+              final updated = LocationMemo(
+                id: m.id,
+                date: m.date,
+                lat: m.lat,
+                lng: m.lng,
+                memo: newText,
+                time: m.time,
+              );
+
+              await HealthRepository.instance.updateLocationMemo(m.date, updated);
+              if (mounted) {
+                setState(() { _refreshTrigger++; });
+                if (setDialogState != null) setDialogState(() {});
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("✏️ 위치 메모가 수정되었습니다.")),
+                );
+              }
+            },
+            child: const Text("수정", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteLocationMemo(LocationMemo m, [StateSetter? setDialogState]) async {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("🗑️ 메모 삭제", style: TextStyle(color: Colors.white)),
+        content: const Text("해당 위치 메모를 삭제하시겠습니까?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              await HealthRepository.instance.deleteLocationMemo(m.date, m.id);
+              if (mounted) {
+                setState(() { _refreshTrigger++; });
+                if (setDialogState != null) setDialogState(() {});
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("🗑️ 메모가 삭제되었습니다.")),
+                );
+              }
+            },
+            child: const Text("삭제", style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showMapDialog() {
     showDialog(
       context: context,
@@ -420,7 +603,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
               backgroundColor: Colors.transparent,
               insetPadding: const EdgeInsets.all(16),
               child: Container(
-                height: 500,
+                height: 560,
                 decoration: BoxDecoration(
                   color: const Color(0xFF1E293B),
                   borderRadius: BorderRadius.circular(24),
@@ -441,6 +624,16 @@ class _WalkingScreenState extends State<WalkingScreen> {
                             ],
                           ),
                         ),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00E5FF),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          ),
+                          onPressed: () => _addCurrentLocationMemo(setDialogState),
+                          icon: const Icon(Icons.add_location_alt, size: 16, color: Colors.black),
+                          label: const Text("현위치 메모", style: TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(width: 4),
                         IconButton(
                           icon: const Icon(Icons.close, color: Colors.white),
                           onPressed: () => Navigator.pop(context),
@@ -516,11 +709,36 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                           builder: (ctx) => AlertDialog(
                                             backgroundColor: const Color(0xFF1E293B),
                                             title: Text("📍 ${m.time} 메모", style: const TextStyle(color: Colors.white)),
-                                            content: Text(m.memo, style: const TextStyle(color: Colors.white70)),
+                                            content: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(m.memo, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  "좌표: ${m.lat.toStringAsFixed(4)}, ${m.lng.toStringAsFixed(4)}",
+                                                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                                ),
+                                              ],
+                                            ),
                                             actions: [
+                                              IconButton(
+                                                icon: const Icon(Icons.edit, color: Color(0xFF00E5FF)),
+                                                onPressed: () {
+                                                  Navigator.pop(ctx);
+                                                  _editLocationMemo(m, setDialogState);
+                                                },
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                                onPressed: () {
+                                                  Navigator.pop(ctx);
+                                                  _deleteLocationMemo(m, setDialogState);
+                                                },
+                                              ),
                                               TextButton(
                                                 onPressed: () => Navigator.pop(ctx),
-                                                child: const Text("닫기", style: TextStyle(color: Color(0xFF00E5FF))),
+                                                child: const Text("닫기", style: TextStyle(color: Colors.grey)),
                                               ),
                                             ],
                                           ),
@@ -536,6 +754,65 @@ class _WalkingScreenState extends State<WalkingScreen> {
                         ),
                       ),
                     ),
+                    if (memos.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.note_alt, color: Color(0xFF00E5FF), size: 14),
+                          const SizedBox(width: 4),
+                          Text("등록된 메모 (${memos.length}개)", style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        height: 54,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: memos.length,
+                          itemBuilder: (ctx, i) {
+                            final m = memos[i];
+                            return Container(
+                              margin: const EdgeInsets.only(right: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0x3300E5FF),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0x6600E5FF)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text("📍 ${m.time}", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 10, fontWeight: FontWeight.bold)),
+                                      SizedBox(
+                                        width: 100,
+                                        child: Text(m.memo, style: const TextStyle(color: Colors.white, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                      ),
+                                    ],
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.white70, size: 16),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => _editLocationMemo(m, setDialogState),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.redAccent, size: 16),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => _deleteLocationMemo(m, setDialogState),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -695,10 +972,25 @@ class _WalkingScreenState extends State<WalkingScreen> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showMapDialog,
-        backgroundColor: const Color(0xFF00E5FF),
-        child: const Icon(Icons.map, color: Colors.black),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: "fab_add_location_memo",
+            onPressed: () => _addCurrentLocationMemo(),
+            backgroundColor: const Color(0xFF00E5FF),
+            icon: const Icon(Icons.edit_location_alt, color: Colors.black),
+            label: const Text("현위치 메모", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton(
+            heroTag: "fab_show_map",
+            onPressed: _showMapDialog,
+            backgroundColor: const Color(0xFF1E293B),
+            child: const Icon(Icons.map, color: Color(0xFF00E5FF)),
+          ),
+        ],
       ),
     );
   }
