@@ -382,8 +382,8 @@ class MeetRepository {
     }
     final snapshot = await _database.ref().child("meets").child(roomCode).child("hostId").get();
     if (snapshot.exists) {
-      final hostId = snapshot.value?.toString();
-      onComplete(myId == hostId);
+      final hostId = snapshot.value?.toString().trim();
+      onComplete(myId.trim() == hostId);
     } else {
       onComplete(false);
     }
@@ -397,13 +397,22 @@ class MeetRepository {
     await _database.ref().child("meets").child(roomCode).update(updates);
   }
 
+  Future<void> updateRoomDetails(String roomCode, String name, LatLng destination) async {
+    final updates = {
+      "name": name,
+      "destLat": destination.latitude,
+      "destLon": destination.longitude
+    };
+    await _database.ref().child("meets").child(roomCode).update(updates);
+  }
+
   Future<void> deleteRoom(String roomCode) async {
     final myId = getCurrentUserId();
     if (myId == null) return;
 
     final snapshot = await _database.ref().child("meets").child(roomCode).child("hostId").get();
-    final hostId = snapshot.value?.toString();
-    if (hostId == myId) {
+    final hostId = snapshot.value?.toString().trim();
+    if (hostId == null || hostId.isEmpty || hostId == myId.trim()) {
       await _database.ref().child("meets").child(roomCode).remove();
     } else {
       await _database.ref().child("meets").child(roomCode).child("members").child(myId).remove();

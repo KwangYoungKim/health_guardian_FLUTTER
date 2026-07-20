@@ -8,7 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/meet_repository.dart';
 
-enum MeetState { lobby, creatingRoom, inRoom }
+enum MeetState { lobby, creatingRoom, editingRoom, inRoom }
 
 class MeetScreen extends StatefulWidget {
   final MeetRepository meetRepo;
@@ -32,12 +32,35 @@ class _MeetScreenState extends State<MeetScreen> {
   LatLng? _destination;
   String _pendingMeetName = "";
 
+  // Edit mode fields
+  String _editingRoomCode = "";
+  String _editingRoomName = "";
+  LatLng? _editingDestination;
+
   @override
   void initState() {
     super.initState();
     if (widget.initialRoomCode != null) {
       _joinRoom(widget.initialRoomCode!);
     }
+  }
+
+  void _startEditingRoom(RoomInfo room) {
+    setState(() {
+      _editingRoomCode = room.roomCode;
+      _editingRoomName = room.name;
+      _editingDestination = LatLng(room.destLat, room.destLon);
+      _meetState = MeetState.editingRoom;
+    });
+  }
+
+  void _startEditingRoomFromCode(String code, String name, LatLng dest) {
+    setState(() {
+      _editingRoomCode = code;
+      _editingRoomName = name;
+      _editingDestination = dest;
+      _meetState = MeetState.editingRoom;
+    });
   }
 
   void _joinRoom(String code) {
@@ -122,11 +145,15 @@ class _MeetScreenState extends State<MeetScreen> {
             });
           },
           onJoinRoom: _joinRoom,
+          onEditRoom: _startEditingRoom,
         );
       case MeetState.creatingRoom:
-        return CreateRoomView(
-          onRoomCreated: (dest) {
-            widget.meetRepo.createRoom(_pendingMeetName, dest, (newRoomCode) {
+        return CreateOrEditRoomView(
+          isEditing: false,
+          initialName: _pendingMeetName,
+          meetRepo: widget.meetRepo,
+          onSave: (name, dest) {
+            widget.meetRepo.createRoom(name, dest, (newRoomCode) {
               if (newRoomCode != null) {
                 setState(() {
                   _destination = dest;
@@ -146,6 +173,31 @@ class _MeetScreenState extends State<MeetScreen> {
             });
           },
         );
+      case MeetState.editingRoom:
+        return CreateOrEditRoomView(
+          isEditing: true,
+          roomCode: _editingRoomCode,
+          initialName: _editingRoomName,
+          initialDestination: _editingDestination,
+          meetRepo: widget.meetRepo,
+          onSave: (newName, newDest) async {
+            await widget.meetRepo.updateRoomDetails(_editingRoomCode, newName, newDest);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("모임 정보 및 목적지가 수정되었습니다."))
+              );
+              setState(() {
+                _destination = newDest;
+                _meetState = MeetState.lobby;
+              });
+            }
+          },
+          onCancel: () {
+            setState(() {
+              _meetState = MeetState.lobby;
+            });
+          },
+        );
       case MeetState.inRoom:
         if (_destination == null) return const Center(child: CircularProgressIndicator());
         return InRoomLiveMap(
@@ -158,6 +210,9 @@ class _MeetScreenState extends State<MeetScreen> {
               _meetState = MeetState.lobby;
             });
           },
+          onEditRoom: (code, name, dest) {
+            _startEditingRoomFromCode(code, name, dest);
+          },
         );
     }
   }
@@ -167,12 +222,14 @@ class LobbyView extends StatefulWidget {
   final MeetRepository meetRepo;
   final Function(String) onCreateRoom;
   final Function(String) onJoinRoom;
+  final Function(RoomInfo) onEditRoom;
 
   const LobbyView({
     Key? key,
     required this.meetRepo,
     required this.onCreateRoom,
     required this.onJoinRoom,
+    required this.onEditRoom,
   }) : super(key: key);
 
   @override
@@ -358,11 +415,12 @@ class _LobbyViewState extends State<LobbyView> {
                   if (room.isHost) ...[
                     const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.edit, color: Colors.white70, size: 16),
+                      icon: const Icon(Icons.edit, color: Color(0xFF00E5FF), size: 18),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
+                      tooltip: "방 관리/수정",
                       onPressed: () {
-                        _showRenameDialog(room);
+                        widget.onEditRoom(room);
                       },
                     ),
                   ],
@@ -789,28 +847,137 @@ class _DestinationSearchWidgetState extends State<DestinationSearchWidget> {
   }
 }
 
-class CreateRoomView extends StatefulWidget {
-  final Function(LatLng) onRoomCreated;
+class CreateOrEditRoomView extends StatefulWidget {
+  final bool isEditing;
+  final String roomCode;
+  final String initialName;
+  final LatLng? initialDestination;
+  final MeetRepository meetRepo;
+  final Function(String name, LatLng dest) onSave;
   final VoidCallback onCancel;
 
-  const CreateRoomView({Key? key, required this.onRoomCreated, required this.onCancel}) : super(key: key);
+  const CreateOrEditRoomView({
+    Key? key,
+    this.isEditing = false,
+    this.roomCode = "",
+    this.initialName = "",
+    this.initialDestination,
+    required this.meetRepo,
+    required this.onSave,
+    required this.onCancel,
+  }) : super(key: key);
 
   @override
-  State<CreateRoomView> createState() => _CreateRoomViewState();
+  State<CreateOrEditRoomView> createState() => _CreateOrEditRoomViewState();
 }
 
-class _CreateRoomViewState extends State<CreateRoomView> {
+class _CreateOrEditRoomViewState extends State<CreateOrEditRoomView> {
+  late TextEditingController _nameController;
   LatLng? _tempDest;
   String? _selectedPlaceName;
   final MapController _mapController = MapController();
 
   @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _tempDest = widget.initialDestination;
+    if (widget.initialDestination != null) {
+      _selectedPlaceName = "지정된 목적지 (${widget.initialDestination!.latitude.toStringAsFixed(4)}, ${widget.initialDestination!.longitude.toStringAsFixed(4)})";
+    }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _showInviteDialog() {
+    widget.meetRepo.fetchUsers((usersList) {
+      showDialog(context: context, builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text("참여자 추가 (초대)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: usersList.isEmpty
+                ? const Text("초대할 수 있는 가입자 목록이 없습니다.", style: TextStyle(color: Colors.white70))
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: usersList.length,
+                    itemBuilder: (context, index) {
+                      final user = usersList[index];
+                      return ListTile(
+                        leading: const Icon(Icons.person_add, color: Color(0xFF00E5FF)),
+                        title: Text(user['name'] ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        subtitle: Text("ID: ${user['id']?.substring(0, 8)}...", style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                        onTap: () {
+                          widget.meetRepo.sendInvite(user['id']!, widget.roomCode);
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${user['name']}님에게 초대 알림을 보냈습니다.")));
+                          Navigator.pop(ctx);
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(color: Colors.grey))),
+          ],
+        );
+      });
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final titleStr = widget.isEditing ? "✏️ 모임 방 관리 및 수정" : "➕ 새로운 모임 방 만들기";
+    final subStr = widget.isEditing 
+        ? "종료 전까지 목적지, 모임명, 참여자 초대를 자유롭게 변경할 수 있습니다." 
+        : "목적지와 모임명을 정하고 초대 코드를 발급받으세요.";
+    final btnStr = widget.isEditing ? "수정 완료 (저장)" : "방 생성 및 초대코드 발급";
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("📍 목적지를 검색하거나 지도에서 클릭해주세요.", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(titleStr, style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Text(subStr, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+                ],
+              ),
+            ),
+            if (widget.isEditing)
+              ElevatedButton.icon(
+                icon: const Icon(Icons.person_add, size: 16, color: Colors.white),
+                label: const Text("참여자 초대", style: TextStyle(fontSize: 12, color: Colors.white)),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50)),
+                onPressed: _showInviteDialog,
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _nameController,
+          style: const TextStyle(color: Colors.white, fontSize: 14),
+          decoration: InputDecoration(
+            labelText: "모임명",
+            labelStyle: const TextStyle(color: Color(0xFF00E5FF)),
+            hintText: "모임 이름을 입력하세요",
+            hintStyle: const TextStyle(color: Colors.grey),
+            filled: true,
+            fillColor: const Color(0x33FFFFFF),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          ),
+        ),
+        const SizedBox(height: 10),
         DestinationSearchWidget(
           onDestinationSelected: (pos, placeName) {
             setState(() {
@@ -831,7 +998,7 @@ class _CreateRoomViewState extends State<CreateRoomView> {
             child: FlutterMap(
               mapController: _mapController,
               options: MapOptions(
-                initialCenter: const LatLng(37.5665, 126.9780),
+                initialCenter: _tempDest ?? const LatLng(37.5665, 126.9780),
                 initialZoom: 15.0,
                 onTap: (tapPosition, point) {
                   setState(() {
@@ -860,7 +1027,7 @@ class _CreateRoomViewState extends State<CreateRoomView> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -870,9 +1037,12 @@ class _CreateRoomViewState extends State<CreateRoomView> {
               child: const Text("취소", style: TextStyle(color: Colors.white)),
             ),
             ElevatedButton(
-              onPressed: _tempDest != null ? () => widget.onRoomCreated(_tempDest!) : null,
+              onPressed: _tempDest != null ? () {
+                final name = _nameController.text.trim().isEmpty ? "모임" : _nameController.text.trim();
+                widget.onSave(name, _tempDest!);
+              } : null,
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
-              child: const Text("방 생성 및 초대코드 발급", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              child: Text(btnStr, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
             )
           ],
         ),
@@ -886,6 +1056,7 @@ class InRoomLiveMap extends StatefulWidget {
   final LatLng initialDestination;
   final MeetRepository meetRepo;
   final VoidCallback onLeave;
+  final Function(String roomCode, String roomName, LatLng dest)? onEditRoom;
 
   const InRoomLiveMap({
     Key? key,
@@ -893,6 +1064,7 @@ class InRoomLiveMap extends StatefulWidget {
     required this.initialDestination,
     required this.meetRepo,
     required this.onLeave,
+    this.onEditRoom,
   }) : super(key: key);
 
   @override
@@ -1148,63 +1320,43 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                     Row(
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.person_add, color: Colors.white),
+                          icon: const Icon(Icons.check_circle, color: Colors.white),
                           style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50)),
-                          tooltip: "사용자 추가",
-                          onPressed: _showInviteDialog,
+                          tooltip: "완료 (목록으로 이동)",
+                          onPressed: widget.onLeave,
                         ),
                         const SizedBox(width: 6),
                         if (_isHost) ...[
-                          if (_isEditingDestination) ...[
-                            IconButton(
-                              icon: const Icon(Icons.close, color: Colors.white),
-                              style: IconButton.styleFrom(backgroundColor: Colors.grey),
-                              onPressed: () {
-                                setState(() {
-                                  _isEditingDestination = false;
-                                  _tempDestination = null;
-                                });
-                              },
-                            ),
-                            const SizedBox(width: 6),
-                            IconButton(
-                              icon: const Icon(Icons.check, color: Colors.black),
-                              style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
-                              onPressed: _tempDestination == null ? null : () {
-                                widget.meetRepo.updateDestination(widget.roomCode, _tempDestination!);
-                                setState(() {
-                                  _isEditingDestination = false;
-                                  _tempDestination = null;
-                                });
-                              },
-                            ),
-                          ] else ...[
-                            IconButton(
-                              icon: const Icon(Icons.edit_location, color: Colors.black),
-                              style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
-                              tooltip: "목적지 수정",
-                              onPressed: () {
-                                setState(() {
-                                  _isEditingDestination = true;
-                                });
-                              },
-                            ),
-                            const SizedBox(width: 6),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.white),
-                              style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
-                              tooltip: "방 삭제",
-                              onPressed: _confirmDeleteRoom,
-                            ),
-                          ],
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.black),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+                            tooltip: "방 관리/수정",
+                            onPressed: () {
+                              widget.onEditRoom?.call(widget.roomCode, widget.roomCode, _destination);
+                            },
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.person_add, color: Colors.white),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFF4285F4)),
+                            tooltip: "참여자 추가",
+                            onPressed: _showInviteDialog,
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.white),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
+                            tooltip: "방 삭제",
+                            onPressed: _confirmDeleteRoom,
+                          ),
+                        ] else ...[
+                          IconButton(
+                            icon: const Icon(Icons.exit_to_app, color: Colors.white),
+                            style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF9800)),
+                            tooltip: "방 나가기",
+                            onPressed: _confirmLeaveRoom,
+                          ),
                         ],
-                        const SizedBox(width: 6),
-                        IconButton(
-                          icon: const Icon(Icons.exit_to_app, color: Colors.white),
-                          style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF9800)),
-                          tooltip: "방 나가기",
-                          onPressed: _confirmLeaveRoom,
-                        ),
                       ],
                     )
                   ],
