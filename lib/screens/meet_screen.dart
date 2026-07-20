@@ -852,10 +852,10 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
       if (!member.isParticipating) continue;
 
       final filteredMemberPath = filterGlitchLatLngPoints(member.path);
-      if (filteredMemberPath.isNotEmpty) {
+      if (filteredMemberPath.length >= 2) {
         polylines.add(Polyline(
           points: filteredMemberPath,
-          color: Color(member.color).withOpacity(0.8),
+          color: Color(member.color).withOpacity(0.9),
           strokeWidth: 5.0,
         ));
       }
@@ -1059,16 +1059,34 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
 List<LatLng> filterGlitchLatLngPoints(List<LatLng> raw) {
   final valid = raw.where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList();
-  if (valid.isEmpty) return [];
-  List<LatLng> filtered = [valid.first];
-  for (int i = 1; i < valid.length; i++) {
-    final prev = filtered.last;
+  if (valid.length < 2) return valid;
+
+  List<LatLng> filtered = [];
+  for (int i = 0; i < valid.length; i++) {
     final curr = valid[i];
+    if (filtered.isEmpty) {
+      filtered.add(curr);
+      continue;
+    }
+    final prev = filtered.last;
     final dist = Geolocator.distanceBetween(
       prev.latitude, prev.longitude,
       curr.latitude, curr.longitude,
     );
+
     if (dist <= 500.0) {
+      filtered.add(curr);
+    } else if (i + 1 < valid.length) {
+      // If dist > 500m, check if next point is close to curr (meaning user moved to a new cluster)
+      final next = valid[i + 1];
+      final distToNext = Geolocator.distanceBetween(
+        curr.latitude, curr.longitude,
+        next.latitude, next.longitude,
+      );
+      if (distToNext <= 500.0) {
+        filtered.add(curr);
+      }
+    } else {
       filtered.add(curr);
     }
   }

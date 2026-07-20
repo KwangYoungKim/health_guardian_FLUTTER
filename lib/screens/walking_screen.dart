@@ -147,22 +147,25 @@ class _WalkingScreenState extends State<WalkingScreen> {
     if (position.accuracy > 50) return; // Ignore low accuracy (> 50m) GPS points
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     var path = HealthRepository.instance.getDailyPath(today).toList();
+    final nowMs = position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
     
     if (path.isNotEmpty) {
       final lastPoint = path.last;
       if (lastPoint.lat != 0.0 && lastPoint.lng != 0.0) {
+        final timeDiffSec = (nowMs - lastPoint.timestamp) / 1000.0;
         final dist = Geolocator.distanceBetween(
           lastPoint.lat, lastPoint.lng,
           position.latitude, position.longitude,
         );
-        if (dist > 500) return; // Ignore sudden 500m+ GPS spikes
+        // Only reject if dist > 500m AND time difference is under 30s (teleport spike)
+        if (dist > 500 && timeDiffSec < 30) return;
       }
     }
     
     path.add(PathPoint(
       lat: position.latitude,
       lng: position.longitude,
-      timestamp: position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+      timestamp: nowMs,
     ));
     
     HealthRepository.instance.saveDailyPath(today, path);
@@ -178,14 +181,29 @@ class _WalkingScreenState extends State<WalkingScreen> {
 
   List<PathPoint> _filterGlitchPathPoints(List<PathPoint> raw) {
     final valid = raw.where((p) => p.lat != 0.0 && p.lng != 0.0).toList();
-    if (valid.isEmpty) return [];
-    List<PathPoint> filtered = [valid.first];
-    for (int i = 1; i < valid.length; i++) {
-      final prev = filtered.last;
+    if (valid.length < 2) return valid;
+
+    List<PathPoint> filtered = [];
+    for (int i = 0; i < valid.length; i++) {
       final curr = valid[i];
-      final dist = Geolocator.distanceBetween(prev.lat, prev.lng, curr.lat, curr.lng);
-      if (dist <= 500.0) {
+      if (filtered.isEmpty) {
         filtered.add(curr);
+        continue;
+      }
+      final prev = filtered.last;
+      final timeDiffSec = (curr.timestamp - prev.timestamp) / 1000.0;
+      final dist = Geolocator.distanceBetween(prev.lat, prev.lng, curr.lat, curr.lng);
+
+      // Accept point if distance <= 500m OR time gap >= 30s
+      if (dist <= 500.0 || timeDiffSec >= 30.0) {
+        filtered.add(curr);
+      } else if (i + 1 < valid.length) {
+        // If dist > 500m and time gap < 30s, check if next point is close to curr
+        final next = valid[i + 1];
+        final distToNext = Geolocator.distanceBetween(curr.lat, curr.lng, next.lat, next.lng);
+        if (distToNext <= 500.0) {
+          filtered.add(curr);
+        }
       }
     }
     return filtered;
@@ -454,12 +472,12 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                 userAgentPackageName: 'com.example.health_guardian_flutter',
                               ),
-                              if (pathPoints.isNotEmpty)
+                              if (pathPoints.length >= 2)
                                 PolylineLayer(
                                   polylines: [
                                     Polyline(
                                       points: pathPoints.map((p) => LatLng(p.lat, p.lng)).toList(),
-                                      color: Colors.blue,
+                                      color: const Color(0xFF00E5FF),
                                       strokeWidth: 6.0,
                                     ),
                                   ],
