@@ -30,25 +30,21 @@ class RingtonePickerHelper {
     return 'default';
   }
   static Future<void> startRingtone(String uri, bool vibrate) async {
-    if (Platform.isAndroid) {
-      try {
-        await _channel.invokeMethod('startRingtone', {
-          'uri': uri,
-          'vibrate': vibrate,
-        });
-      } catch (e) {
-        print("Error starting ringtone: $e");
-      }
+    try {
+      await _channel.invokeMethod('startRingtone', {
+        'uri': uri,
+        'vibrate': vibrate,
+      });
+    } catch (e) {
+      print("Error starting ringtone: $e");
     }
   }
 
   static Future<void> stopRingtone() async {
-    if (Platform.isAndroid) {
-      try {
-        await _channel.invokeMethod('stopRingtone');
-      } catch (e) {
-        print("Error stopping ringtone: $e");
-      }
+    try {
+      await _channel.invokeMethod('stopRingtone');
+    } catch (e) {
+      print("Error stopping ringtone: $e");
     }
   }
 

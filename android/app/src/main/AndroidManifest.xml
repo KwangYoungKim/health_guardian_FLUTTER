@@ -18,7 +18,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
 
     <application
-        android:label="health_guardian_flutter"
+        android:label="Smart Health"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

@@ -47,6 +47,20 @@ class NotificationService {
 
     await _flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
+    if (Platform.isIOS) {
+      try {
+        await _flutterLocalNotificationsPlugin
+            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+            ?.requestPermissions(
+              alert: true,
+              badge: true,
+              sound: true,
+            );
+      } catch (e) {
+        print("Error requesting iOS notifications permission: $e");
+      }
+    }
+
     if (Platform.isAndroid) {
       try {
         await _flutterLocalNotificationsPlugin
@@ -84,7 +98,7 @@ class NotificationService {
       additionalFlags: Int32List.fromList(<int>[4]),
     );
     DarwinNotificationDetails iOSPlatformChannelSpecifics =
-        DarwinNotificationDetails(presentSound: playSound, presentAlert: true, presentBadge: true);
+        DarwinNotificationDetails(presentSound: playSound, sound: playSound ? 'default' : null, presentAlert: true, presentBadge: true);
     NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
       iOS: iOSPlatformChannelSpecifics,
@@ -148,7 +162,7 @@ class NotificationService {
       additionalFlags: Int32List.fromList(<int>[4]),
     );
     DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      presentSound: playSound, presentAlert: true, presentBadge: true,
+      presentSound: playSound, sound: playSound ? 'default' : null, presentAlert: true, presentBadge: true,
     );
     NotificationDetails platformDetails = NotificationDetails(
       android: androidDetails,
@@ -234,7 +248,7 @@ class NotificationService {
         additionalFlags: Int32List.fromList(<int>[4]),
       );
       DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-        presentSound: playSound, presentAlert: true, presentBadge: true,
+        presentSound: playSound, sound: playSound ? 'default' : null, presentAlert: true, presentBadge: true,
       );
       NotificationDetails platformDetails = NotificationDetails(
         android: androidDetails,

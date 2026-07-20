@@ -879,7 +879,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("👟 걷기 만보기", style: TextStyle(color: Color(0xFF00E5FF), fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text("👟 Smart Health 걷기", style: TextStyle(color: Color(0xFF00E5FF), fontSize: 20, fontWeight: FontWeight.bold)),
                       if (_nickname != null && _nickname!.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
@@ -972,18 +972,16 @@ class _WalkingScreenState extends State<WalkingScreen> {
           ],
         ),
       ),
-      floatingActionButton: Column(
+      floatingActionButton: Row(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          FloatingActionButton.extended(
+          FloatingActionButton(
             heroTag: "fab_add_location_memo",
             onPressed: () => _addCurrentLocationMemo(),
             backgroundColor: const Color(0xFF00E5FF),
-            icon: const Icon(Icons.edit_location_alt, color: Colors.black),
-            label: const Text("현위치 메모", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Icon(Icons.edit_location_alt, color: Colors.black),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(width: 12),
           FloatingActionButton(
             heroTag: "fab_show_map",
             onPressed: _showMapDialog,
@@ -1151,7 +1149,6 @@ class _WalkingScreenState extends State<WalkingScreen> {
     return GestureDetector(
       onTap: () {
         setState(() => _selectedDate = fullDate);
-        _showMapDialog();
       },
       child: Container(
         margin: const EdgeInsets.all(2),

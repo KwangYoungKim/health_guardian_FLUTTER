@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -387,8 +389,9 @@ class _LobbyViewState extends State<LobbyView> {
                     child: Text(isActive ? "진행중" : "종료", style: TextStyle(color: isActive ? Colors.white : Colors.grey, fontSize: 11)),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.grey, size: 18),
-                    onPressed: () => widget.meetRepo.deleteRoom(room.roomCode),
+                    icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18),
+                    tooltip: "방 삭제",
+                    onPressed: () => _confirmDeleteRoomInLobby(room),
                   )
                 ],
               )
@@ -419,8 +422,9 @@ class _LobbyViewState extends State<LobbyView> {
                     child: Text(room.isParticipating ? "참여" : "불참", style: TextStyle(color: room.isParticipating ? Colors.black : Colors.white, fontSize: 11)),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.exit_to_app, color: Colors.grey, size: 18),
-                    onPressed: () => widget.meetRepo.deleteRoom(room.roomCode),
+                    icon: const Icon(Icons.exit_to_app, color: Colors.orangeAccent, size: 18),
+                    tooltip: "방 나가기",
+                    onPressed: () => _confirmLeaveRoomInLobby(room),
                   )
                 ],
               )
@@ -634,6 +638,155 @@ class _LobbyViewState extends State<LobbyView> {
       );
     });
   }
+
+  void _confirmDeleteRoomInLobby(RoomInfo room) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text("${room.name} 삭제", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text("정말 이 모임 방을 삭제하시겠습니까?\n모든 데이터가 삭제되며 복구할 수 없습니다.", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소", style: TextStyle(color: Colors.grey))),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.meetRepo.deleteRoom(room.roomCode);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방이 삭제되었습니다.")));
+              }
+            },
+            child: const Text("삭제", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLeaveRoomInLobby(RoomInfo room) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: Text("${room.name} 나가기", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text("이 모임 방에서 나가시겠습니까?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소", style: TextStyle(color: Colors.grey))),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.meetRepo.deleteRoom(room.roomCode);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방에서 나왔습니다.")));
+              }
+            },
+            child: const Text("나가기", style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DestinationSearchWidget extends StatefulWidget {
+  final Function(LatLng pos, String placeName) onDestinationSelected;
+
+  const DestinationSearchWidget({Key? key, required this.onDestinationSelected}) : super(key: key);
+
+  @override
+  State<DestinationSearchWidget> createState() => _DestinationSearchWidgetState();
+}
+
+class _DestinationSearchWidgetState extends State<DestinationSearchWidget> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+
+  Future<void> _performSearch(String query) async {
+    if (query.trim().isEmpty) return;
+    setState(() => _isSearching = true);
+    try {
+      final uri = Uri.parse("https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(query)}&format=json&accept-language=ko&limit=5");
+      final response = await http.get(uri, headers: {'User-Agent': 'SmartHealthFlutter/1.0'});
+      if (response.statusCode == 200) {
+        final List data = jsonDecode(response.body);
+        setState(() {
+          _searchResults = data.map((item) => {
+            'display_name': item['display_name'] ?? '',
+            'lat': double.parse(item['lat']),
+            'lon': double.parse(item['lon']),
+          }).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint("Search error: $e");
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchCtrl,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: "목적지 장소/주소 검색 (예: 서울역, 강남역)",
+                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                  filled: true,
+                  fillColor: const Color(0x33FFFFFF),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                ),
+                onSubmitted: _performSearch,
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: _isSearching
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)))
+                  : const Icon(Icons.search, color: Color(0xFF00E5FF)),
+              onPressed: () => _performSearch(_searchCtrl.text),
+            ),
+          ],
+        ),
+        if (_searchResults.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            constraints: const BoxConstraints(maxHeight: 160),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: _searchResults.length,
+              separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 1),
+              itemBuilder: (context, idx) {
+                final item = _searchResults[idx];
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.location_on, color: Colors.redAccent, size: 18),
+                  title: Text(item['display_name'], style: const TextStyle(color: Colors.white, fontSize: 11), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  onTap: () {
+                    final pos = LatLng(item['lat'], item['lon']);
+                    widget.onDestinationSelected(pos, item['display_name']);
+                    setState(() => _searchResults = []);
+                  },
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class CreateRoomView extends StatefulWidget {
@@ -648,24 +801,42 @@ class CreateRoomView extends StatefulWidget {
 
 class _CreateRoomViewState extends State<CreateRoomView> {
   LatLng? _tempDest;
+  String? _selectedPlaceName;
+  final MapController _mapController = MapController();
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("📍 목적지(모임 장소)를 지도에서 클릭해주세요.", style: TextStyle(color: Colors.white)),
-        const SizedBox(height: 8),
+        const Text("📍 목적지를 검색하거나 지도에서 클릭해주세요.", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 6),
+        DestinationSearchWidget(
+          onDestinationSelected: (pos, placeName) {
+            setState(() {
+              _tempDest = pos;
+              _selectedPlaceName = placeName;
+            });
+            _mapController.move(pos, 15.0);
+          },
+        ),
+        if (_selectedPlaceName != null) ...[
+          const SizedBox(height: 4),
+          Text("선택한 장소: $_selectedPlaceName", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
+        const SizedBox(height: 6),
         Expanded(
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: FlutterMap(
+              mapController: _mapController,
               options: MapOptions(
                 initialCenter: const LatLng(37.5665, 126.9780),
                 initialZoom: 15.0,
                 onTap: (tapPosition, point) {
                   setState(() {
                     _tempDest = point;
+                    _selectedPlaceName = "지정한 위치 (${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)})";
                   });
                 },
               ),
@@ -704,7 +875,7 @@ class _CreateRoomViewState extends State<CreateRoomView> {
               child: const Text("방 생성 및 초대코드 발급", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
             )
           ],
-        )
+        ),
       ],
     );
   }
@@ -735,6 +906,7 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
   bool _isEditingDestination = false;
   LatLng? _tempDestination;
   String _roomStatus = "ACTIVE";
+  final MapController _mapController = MapController();
 
   StreamSubscription? _statusSub;
   StreamSubscription? _destSub;
@@ -805,11 +977,12 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
     widget.meetRepo.fetchUsers((usersList) {
       showDialog(context: context, builder: (ctx) {
         return AlertDialog(
-          title: const Text("누구를 초대할까요?"),
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text("참여자 추가 (초대)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           content: SizedBox(
             width: double.maxFinite,
             child: usersList.isEmpty
-                ? const Text("초대할 수 있는 사용자를 불러오는 중이거나 아직 가입한 다른 사용자가 없습니다.")
+                ? const Text("초대할 수 있는 가입자 목록이 없습니다.", style: TextStyle(color: Colors.white70))
                 : ListView.builder(
                     shrinkWrap: true,
                     itemCount: usersList.length,
@@ -817,7 +990,7 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                       final user = usersList[index];
                       return ListTile(
                         leading: const Icon(Icons.person_add, color: Color(0xFF00E5FF)),
-                        title: Text(user['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        title: Text(user['name'] ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         subtitle: Text("ID: ${user['id']?.substring(0, 8)}...", style: const TextStyle(fontSize: 12, color: Colors.grey)),
                         onTap: () {
                           widget.meetRepo.sendInvite(user['id']!, widget.roomCode);
@@ -829,11 +1002,67 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                   ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기")),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(color: Colors.grey))),
           ],
         );
       });
     });
+  }
+
+  void _confirmDeleteRoom() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("방 삭제", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text("정말 이 모임 방을 삭제하시겠습니까?\n모든 참여자에게 모임 방이 종료됩니다.", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.meetRepo.deleteRoom(widget.roomCode);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방이 삭제되었습니다.")));
+                widget.onLeave();
+              }
+            },
+            child: const Text("삭제", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmLeaveRoom() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("방 나가기", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text("모임 방에서 나가시겠습니까?", style: TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await widget.meetRepo.deleteRoom(widget.roomCode);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방에서 나왔습니다.")));
+                widget.onLeave();
+              }
+            },
+            child: const Text("나가기", style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -887,95 +1116,110 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
         Card(
           color: const Color(0x3300E5FF),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
               children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      Clipboard.setData(ClipboardData(text: widget.roomCode));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초대 코드가 복사되었습니다.")));
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text("초대 코드 (터치하여 복사)", style: TextStyle(color: Colors.grey, fontSize: 10)),
-                        Row(
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: widget.roomCode));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("초대 코드가 복사되었습니다.")));
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(widget.roomCode, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                            const Text("초대 코드 (터치하여 복사)", style: TextStyle(color: Colors.grey, fontSize: 10)),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(widget.roomCode, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                                ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.copy, color: Colors.white, size: 16),
+                              ],
                             ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.copy, color: Colors.white, size: 16),
                           ],
                         ),
-                        if (_isHost && _isEditingDestination)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 4.0),
-                            child: Text("지도에서 새 목적지를 클릭하세요", style: TextStyle(color: Colors.yellow, fontSize: 12)),
-                          )
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.person_add, color: Colors.white),
+                          style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50)),
+                          tooltip: "사용자 추가",
+                          onPressed: _showInviteDialog,
+                        ),
+                        const SizedBox(width: 6),
+                        if (_isHost) ...[
+                          if (_isEditingDestination) ...[
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.white),
+                              style: IconButton.styleFrom(backgroundColor: Colors.grey),
+                              onPressed: () {
+                                setState(() {
+                                  _isEditingDestination = false;
+                                  _tempDestination = null;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              icon: const Icon(Icons.check, color: Colors.black),
+                              style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+                              onPressed: _tempDestination == null ? null : () {
+                                widget.meetRepo.updateDestination(widget.roomCode, _tempDestination!);
+                                setState(() {
+                                  _isEditingDestination = false;
+                                  _tempDestination = null;
+                                });
+                              },
+                            ),
+                          ] else ...[
+                            IconButton(
+                              icon: const Icon(Icons.edit_location, color: Colors.black),
+                              style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+                              tooltip: "목적지 수정",
+                              onPressed: () {
+                                setState(() {
+                                  _isEditingDestination = true;
+                                });
+                              },
+                            ),
+                            const SizedBox(width: 6),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.white),
+                              style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
+                              tooltip: "방 삭제",
+                              onPressed: _confirmDeleteRoom,
+                            ),
+                          ],
+                        ],
+                        const SizedBox(width: 6),
+                        IconButton(
+                          icon: const Icon(Icons.exit_to_app, color: Colors.white),
+                          style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF9800)),
+                          tooltip: "방 나가기",
+                          onPressed: _confirmLeaveRoom,
+                        ),
                       ],
-                    ),
-                  ),
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.person_add, color: Colors.white),
-                      style: IconButton.styleFrom(backgroundColor: const Color(0xFF4CAF50)),
-                      onPressed: _showInviteDialog,
-                    ),
-                    const SizedBox(width: 8),
-                    if (_isHost)
-                      if (_isEditingDestination) ...[
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          style: IconButton.styleFrom(backgroundColor: Colors.grey),
-                          onPressed: () {
-                            setState(() {
-                              _isEditingDestination = false;
-                              _tempDestination = null;
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.check, color: Colors.black),
-                          style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
-                          onPressed: _tempDestination == null ? null : () {
-                            widget.meetRepo.updateDestination(widget.roomCode, _tempDestination!);
-                            setState(() {
-                              _isEditingDestination = false;
-                              _tempDestination = null;
-                            });
-                          },
-                        ),
-                      ] else ...[
-                        IconButton(
-                          icon: const Icon(Icons.edit_location, color: Colors.black),
-                          style: IconButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
-                          onPressed: () {
-                            setState(() {
-                              _isEditingDestination = true;
-                            });
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.white),
-                          style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
-                          onPressed: () => widget.meetRepo.deleteRoom(widget.roomCode),
-                        ),
-                      ],
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.exit_to_app, color: Colors.white),
-                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
-                      onPressed: widget.onLeave,
-                    ),
+                    )
                   ],
-                )
+                ),
+                if (_isHost && _isEditingDestination) ...[
+                  const SizedBox(height: 8),
+                  DestinationSearchWidget(
+                    onDestinationSelected: (pos, placeName) {
+                      setState(() {
+                        _tempDestination = pos;
+                      });
+                      _mapController.move(pos, 15.0);
+                    },
+                  ),
+                ],
               ],
             ),
           ),
@@ -985,6 +1229,7 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: FlutterMap(
+              mapController: _mapController,
               options: MapOptions(
                 initialCenter: _destination,
                 initialZoom: 14.0,
