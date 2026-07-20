@@ -36,7 +36,13 @@ import Photos
     if fileManager.fileExists(atPath: path) {
       if let image = UIImage(contentsOfFile: path) {
         PHPhotoLibrary.requestAuthorization { status in
-          if status == .authorized || status == .limited {
+          var isAllowed = (status == .authorized)
+          if #available(iOS 14.0, *) {
+            if status == .limited {
+              isAllowed = true
+            }
+          }
+          if isAllowed {
             PHPhotoLibrary.shared().performChanges({
               PHAssetChangeRequest.creationRequestForAsset(from: image)
             }) { success, error in
