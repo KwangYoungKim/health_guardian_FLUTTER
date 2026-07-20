@@ -711,6 +711,9 @@ class _LobbyViewState extends State<LobbyView> {
               Navigator.pop(ctx);
               await widget.meetRepo.deleteRoom(room.roomCode);
               if (mounted) {
+                setState(() {
+                  _myMeets.removeWhere((r) => r.roomCode == room.roomCode);
+                });
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방이 삭제되었습니다.")));
               }
             },
@@ -735,6 +738,9 @@ class _LobbyViewState extends State<LobbyView> {
               Navigator.pop(ctx);
               await widget.meetRepo.deleteRoom(room.roomCode);
               if (mounted) {
+                setState(() {
+                  _myMeets.removeWhere((r) => r.roomCode == room.roomCode);
+                });
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("모임 방에서 나왔습니다.")));
               }
             },

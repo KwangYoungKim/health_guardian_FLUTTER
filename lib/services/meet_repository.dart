@@ -410,12 +410,16 @@ class MeetRepository {
     final myId = getCurrentUserId();
     if (myId == null) return;
 
-    final snapshot = await _database.ref().child("meets").child(roomCode).child("hostId").get();
-    final hostId = snapshot.value?.toString().trim();
-    if (hostId == null || hostId.isEmpty || hostId == myId.trim()) {
+    try {
+      await _database.ref().child("meets").child(roomCode).set(null);
       await _database.ref().child("meets").child(roomCode).remove();
-    } else {
-      await _database.ref().child("meets").child(roomCode).child("members").child(myId).remove();
+    } catch (e) {
+      // Ignore if node already removed
+    }
+
+    final active = getActiveRoomCode();
+    if (active == roomCode) {
+      await setActiveRoomCode(null);
     }
     await setParticipatingRoom(roomCode, false);
   }
@@ -458,19 +462,20 @@ class MeetRepository {
   Stream<List<RoomInfo>> observeMyMeets() {
     final myId = getCurrentUserId();
     if (myId == null) return const Stream.empty();
+    final cleanMyId = myId.trim();
 
     return _database.ref().child("meets").onValue.map((event) {
       final snapshot = event.snapshot;
       List<RoomInfo> rooms = [];
-      if (snapshot.value != null) {
+      if (snapshot.value != null && snapshot.value is Map) {
         final data = snapshot.value as Map;
         data.forEach((roomCode, childVal) {
           if (childVal is Map) {
-            final hostId = childVal['hostId']?.toString();
+            final hostId = childVal['hostId']?.toString().trim();
             final membersSnapshot = childVal['members'] as Map?;
             
-            bool isHost = hostId == myId;
-            bool isMember = membersSnapshot?.containsKey(myId) ?? false;
+            bool isHost = (hostId != null && hostId == cleanMyId);
+            bool isMember = (membersSnapshot != null && (membersSnapshot.containsKey(cleanMyId) || membersSnapshot.containsKey(myId)));
 
             if (isHost || isMember) {
               final name = childVal['name']?.toString() ?? "이름 없음";
@@ -480,8 +485,8 @@ class MeetRepository {
               final memberCount = membersSnapshot?.length ?? 0;
               
               bool isParticipating = true;
-              if (isMember) {
-                final myMemberData = membersSnapshot![myId] as Map?;
+              if (isMember && membersSnapshot != null) {
+                final myMemberData = (membersSnapshot[cleanMyId] ?? membersSnapshot[myId]) as Map?;
                 if (myMemberData != null) {
                   isParticipating = myMemberData['isParticipating'] == true || myMemberData['isParticipating'] == null;
                 }
