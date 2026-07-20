@@ -1085,7 +1085,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
         }
       },
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: const Color(0x1AFFFFFF),
           borderRadius: BorderRadius.circular(12),
@@ -1103,7 +1103,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
                 return Expanded(child: Center(child: Text(day, style: TextStyle(color: color, fontSize: 12))));
               }).toList(),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             ...rows.map((row) {
               final rowWidget = Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1141,8 +1141,8 @@ class _WalkingScreenState extends State<WalkingScreen> {
     final hasPath = HealthRepository.instance.getDailyPath(fullDate).isNotEmpty;
     final isSelected = fullDate == _selectedDate;
     
-    final sizeMod = _isWeekly ? 40.0 : 24.0;
-    final textMod = _isWeekly ? 14.0 : 12.0;
+    final sizeMod = _isWeekly ? 40.0 : 20.0;
+    final textMod = _isWeekly ? 14.0 : 11.0;
     final isGoalReached = steps > 0 && steps >= dailyGoal;
     final cellColor = isGoalReached ? const Color(0xFFFFD700) : const Color(0xFF00E5FF);
 
@@ -1151,55 +1151,59 @@ class _WalkingScreenState extends State<WalkingScreen> {
         setState(() => _selectedDate = fullDate);
       },
       child: Container(
-        margin: const EdgeInsets.all(2),
-        padding: EdgeInsets.symmetric(vertical: _isWeekly ? 8.0 : 4.0),
+        margin: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
+        padding: EdgeInsets.symmetric(vertical: _isWeekly ? 6.0 : 2.0),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0x3300E5FF) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
         ),
-        child: Column(
-          children: [
-            Text(dayStr, style: TextStyle(color: Colors.white, fontSize: textMod)),
-            SizedBox(height: _isWeekly ? 8 : 2),
-            SizedBox(
-              width: sizeMod,
-              height: sizeMod,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: progress,
-                    color: cellColor,
-                    backgroundColor: const Color(0x33FFFFFF),
-                    strokeWidth: _isWeekly ? 4.0 : 2.0,
-                  ),
-                  if (hasMemos || hasPath)
-                    Align(
-                      alignment: Alignment.bottomRight,
-                      child: Container(
-                        width: _isWeekly ? 8 : 6,
-                        height: _isWeekly ? 8 : 6,
-                        decoration: BoxDecoration(
-                          color: hasPath ? const Color(0xFF4285F4) : const Color(0xFFFFB74D),
-                          shape: BoxShape.circle,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(dayStr, style: TextStyle(color: Colors.white, fontSize: textMod)),
+              SizedBox(height: _isWeekly ? 6 : 1),
+              SizedBox(
+                width: sizeMod,
+                height: sizeMod,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      value: progress,
+                      color: cellColor,
+                      backgroundColor: const Color(0x33FFFFFF),
+                      strokeWidth: _isWeekly ? 4.0 : 2.0,
+                    ),
+                    if (hasMemos || hasPath)
+                      Align(
+                        alignment: Alignment.bottomRight,
+                        child: Container(
+                          width: _isWeekly ? 8 : 5,
+                          height: _isWeekly ? 8 : 5,
+                          decoration: BoxDecoration(
+                            color: hasPath ? const Color(0xFF4285F4) : const Color(0xFFFFB74D),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-            if (_isWeekly) ...[
-              const SizedBox(height: 8),
-              Text(
-                isGoalReached ? "⭐ $steps" : "$steps",
-                style: TextStyle(
-                  color: steps > 0 ? cellColor : Colors.grey,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+                  ],
                 ),
               ),
-            ]
-          ],
+              if (_isWeekly) ...[
+                const SizedBox(height: 6),
+                Text(
+                  isGoalReached ? "⭐ $steps" : "$steps",
+                  style: TextStyle(
+                    color: steps > 0 ? cellColor : Colors.grey,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ]
+            ],
+          ),
         ),
       ),
     );
