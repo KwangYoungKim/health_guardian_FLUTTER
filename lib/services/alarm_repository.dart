@@ -1,6 +1,7 @@
 // lib/services/alarm_repository.dart
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 class AlarmItem {
   final int id;
@@ -35,14 +36,14 @@ class AlarmItem {
   };
 
   factory AlarmItem.fromJson(Map<String, dynamic> json) => AlarmItem(
-    id: json['id'] as int,
-    intervalMinutes: json['intervalMinutes'] as int,
-    nextTriggerTimeMillis: json['nextTriggerTimeMillis'] as int,
+    id: json['id'] is String ? int.tryParse(json['id']) ?? 0 : (json['id'] as int? ?? 0),
+    intervalMinutes: json['intervalMinutes'] is String ? int.tryParse(json['intervalMinutes']) ?? 0 : (json['intervalMinutes'] as int? ?? 0),
+    nextTriggerTimeMillis: json['nextTriggerTimeMillis'] is String ? int.tryParse(json['nextTriggerTimeMillis']) ?? 0 : (json['nextTriggerTimeMillis'] as int? ?? 0),
     title: json['title'] as String? ?? "",
     ringtoneUri: json['ringtoneUri'] as String? ?? "",
     skipNext: json['skipNext'] as bool? ?? false,
     isRunning: json['isRunning'] as bool? ?? true,
-    remainingTimeMillis: json['remainingTimeMillis'] as int? ?? 0,
+    remainingTimeMillis: json['remainingTimeMillis'] is String ? int.tryParse(json['remainingTimeMillis']) ?? 0 : (json['remainingTimeMillis'] as int? ?? 0),
   );
 
   AlarmItem copyWith({
@@ -86,6 +87,13 @@ class AlarmRepository {
     final prefs = await SharedPreferences.getInstance();
     final jsonString = jsonEncode(alarms.map((e) => e.toJson()).toList());
     await prefs.setString(_key, jsonString);
+
+    // Sync to backend if logged in
+    final userId = prefs.getString('api_user_id');
+    if (userId != null) {
+      ApiService.syncAlarms(userId, alarms.map((e) => e.toJson()).toList())
+          .catchError((e) => print("Alarm sync error: $e"));
+    }
   }
 
   Future<void> addAlarm(AlarmItem alarm) async {

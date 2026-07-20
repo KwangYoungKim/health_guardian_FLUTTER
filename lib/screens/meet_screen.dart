@@ -337,8 +337,24 @@ class _LobbyViewState extends State<LobbyView> {
               flex: 2,
               child: Row(
                 children: [
-                  Text(shortName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14), maxLines: 1),
-                  if (room.isHost)
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => _showHistoryMapPopup(room),
+                      child: Text(
+                        shortName,
+                        style: const TextStyle(
+                          color: Color(0xFF00E5FF),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          decoration: TextDecoration.underline,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  if (room.isHost) ...[
+                    const SizedBox(width: 4),
                     IconButton(
                       icon: const Icon(Icons.edit, color: Colors.white70, size: 16),
                       padding: EdgeInsets.zero,
@@ -346,7 +362,8 @@ class _LobbyViewState extends State<LobbyView> {
                       onPressed: () {
                         _showRenameDialog(room);
                       },
-                    )
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -411,6 +428,181 @@ class _LobbyViewState extends State<LobbyView> {
         ),
       ),
     );
+  }
+
+  void _showHistoryMapPopup(RoomInfo room) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+      ),
+    );
+
+    try {
+      final dest = LatLng(room.destLat, room.destLon);
+      final members = await widget.meetRepo.getRoomMembersOnce(room.roomCode);
+
+      if (context.mounted) Navigator.pop(context);
+
+      if (dest.latitude == 0.0 && dest.longitude == 0.0) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("모임 목적지 정보가 올바르지 않습니다.", style: TextStyle(color: Colors.white)),
+              backgroundColor: Color(0xFF1E293B),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) {
+            final markers = <Marker>[
+              Marker(
+                point: dest!,
+                width: 40,
+                height: 40,
+                child: const Icon(Icons.stars, color: Colors.amber, size: 40),
+              ),
+            ];
+
+            final polylines = <Polyline>[];
+
+            for (var m in members) {
+              if (m.location.latitude != 0.0 && m.location.longitude != 0.0) {
+                markers.add(
+                  Marker(
+                    point: m.location,
+                    width: 32,
+                    height: 32,
+                    child: CircleAvatar(
+                      backgroundColor: Color(m.color),
+                      radius: 12,
+                      child: Text(
+                        m.name.isNotEmpty ? m.name[0] : "?",
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final filteredPath = filterGlitchLatLngPoints(m.path);
+              if (filteredPath.length > 1) {
+                polylines.add(
+                  Polyline(
+                    points: filteredPath,
+                    strokeWidth: 4.0,
+                    color: Color(m.color),
+                  ),
+                );
+              }
+            }
+
+            return Dialog(
+              backgroundColor: const Color(0xFF1E293B),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.9,
+                height: MediaQuery.of(context).size.height * 0.7,
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "${room.name} 이동 경로",
+                            style: const TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 18),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: FlutterMap(
+                          options: MapOptions(
+                            initialCenter: dest!,
+                            initialZoom: 13.0,
+                          ),
+                          children: [
+                            TileLayer(
+                              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                              userAgentPackageName: 'com.example.healthguardian',
+                            ),
+                            PolylineLayer(polylines: polylines),
+                            MarkerLayer(markers: markers),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "참여자 목록",
+                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 48,
+                      child: members.isEmpty
+                          ? const Center(child: Text("참여자가 없습니다.", style: TextStyle(color: Colors.grey, fontSize: 12)))
+                          : ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: members.length,
+                              itemBuilder: (c, idx) {
+                                final m = members[idx];
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 12.0),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        backgroundColor: Color(m.color),
+                                        radius: 10,
+                                        child: Text(
+                                          m.name.isNotEmpty ? m.name[0] : "?",
+                                          style: const TextStyle(color: Colors.white, fontSize: 8),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        m.name,
+                                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("이력 지도를 불러오지 못했습니다: $e")),
+        );
+      }
+    }
   }
 
   void _showRenameDialog(RoomInfo room) {
@@ -659,9 +851,10 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
     for (var member in _members) {
       if (!member.isParticipating) continue;
 
-      if (member.path.isNotEmpty) {
+      final filteredMemberPath = filterGlitchLatLngPoints(member.path);
+      if (filteredMemberPath.isNotEmpty) {
         polylines.add(Polyline(
-          points: member.path,
+          points: filteredMemberPath,
           color: Color(member.color).withOpacity(0.8),
           strokeWidth: 5.0,
         ));
@@ -710,7 +903,9 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                         const Text("초대 코드 (터치하여 복사)", style: TextStyle(color: Colors.grey, fontSize: 10)),
                         Row(
                           children: [
-                            Text(widget.roomCode, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                            Expanded(
+                              child: Text(widget.roomCode, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                            ),
                             const SizedBox(width: 4),
                             const Icon(Icons.copy, color: Colors.white, size: 16),
                           ],
@@ -860,4 +1055,22 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
       ],
     );
   }
+}
+
+List<LatLng> filterGlitchLatLngPoints(List<LatLng> raw) {
+  final valid = raw.where((p) => p.latitude != 0.0 && p.longitude != 0.0).toList();
+  if (valid.isEmpty) return [];
+  List<LatLng> filtered = [valid.first];
+  for (int i = 1; i < valid.length; i++) {
+    final prev = filtered.last;
+    final curr = valid[i];
+    final dist = Geolocator.distanceBetween(
+      prev.latitude, prev.longitude,
+      curr.latitude, curr.longitude,
+    );
+    if (dist <= 500.0) {
+      filtered.add(curr);
+    }
+  }
+  return filtered;
 }

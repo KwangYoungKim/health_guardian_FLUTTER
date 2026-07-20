@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/memo_storage.dart';
+import '../services/api_service.dart';
+import 'image_viewer_screen.dart';
 
 class MemoEditorScreen extends StatefulWidget {
   final RichMemo? initialMemo;
@@ -71,6 +75,27 @@ class _MemoEditorScreenState extends State<MemoEditorScreen> {
     } else {
       await _storage.addMemo(_title, contentJson, _createdAt);
     }
+
+    // Upload local images to the backend server
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final nickname = prefs.getString('api_nickname') ?? 'default';
+      for (var block in _blocks) {
+        if (block.type == 'image') {
+          final file = File(block.content);
+          if (await file.exists()) {
+            ApiService.uploadImage(nickname, file).then((success) {
+              print("Image ${file.path} sync to server: $success");
+            }).catchError((e) {
+              print("Image sync error: $e");
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print("Failed to initiate background image sync: $e");
+    }
+
     Navigator.pop(context, true);
   }
 
@@ -88,12 +113,59 @@ class _MemoEditorScreenState extends State<MemoEditorScreen> {
     });
   }
 
+  Future<String?> _cropImage(String path) async {
+    final croppedFile = await ImageCropper().cropImage(
+      sourcePath: path,
+      uiSettings: [
+        AndroidUiSettings(
+          toolbarTitle: '이미지 편집',
+          toolbarColor: const Color(0xFF1E293B),
+          toolbarWidgetColor: const Color(0xFF00E5FF),
+          activeControlsWidgetColor: const Color(0xFF00E5FF),
+          initAspectRatio: CropAspectRatioPreset.original,
+          lockAspectRatio: false,
+        ),
+        IOSUiSettings(
+          title: '이미지 편집',
+          cancelButtonTitle: '취소',
+          doneButtonTitle: '완료',
+        ),
+      ],
+    );
+    return croppedFile?.path;
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source);
-    if (pickedFile != null) {
-      final savedPath = await _storage.saveImageFile(File(pickedFile.path));
-      _insertImage(savedPath);
+    
+    if (source == ImageSource.gallery) {
+      try {
+        final List<XFile> pickedFiles = await picker.pickMultiImage();
+        if (pickedFiles.isNotEmpty) {
+          for (var file in pickedFiles) {
+            final croppedPath = await _cropImage(file.path);
+            if (croppedPath != null) {
+              final savedPath = await _storage.saveImageFile(File(croppedPath));
+              _insertImage(savedPath);
+            }
+          }
+        }
+      } catch (e) {
+        print("Error picking multi-images: $e");
+      }
+    } else {
+      try {
+        final XFile? pickedFile = await picker.pickImage(source: source);
+        if (pickedFile != null) {
+          final croppedPath = await _cropImage(pickedFile.path);
+          if (croppedPath != null) {
+            final savedPath = await _storage.saveImageFile(File(croppedPath));
+            _insertImage(savedPath);
+          }
+        }
+      } catch (e) {
+        print("Error picking image from camera: $e");
+      }
     }
   }
 
@@ -247,9 +319,33 @@ class _MemoEditorScreenState extends State<MemoEditorScreen> {
                                 color: const Color(0x11FFFFFF),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: block.content.startsWith('/')
-                                  ? Image.file(File(block.content), fit: BoxFit.contain)
-                                  : Image.network(block.content, fit: BoxFit.contain), 
+                              child: GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ImageViewerScreen(
+                                        imagePath: block.content,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: block.content.startsWith('http')
+                                    ? Image.network(block.content, fit: BoxFit.contain)
+                                    : Image.file(
+                                        File(block.content),
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          final filename = block.content.split('/').last;
+                                          final url = 'http://116.123.208.138:8099/api/images/$filename';
+                                          return Image.network(
+                                            url,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, err, st) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                                          );
+                                        },
+                                      ),
+                              ),
                             ),
                             if (_isEditing)
                               IconButton(

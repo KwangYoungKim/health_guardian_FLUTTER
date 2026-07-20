@@ -1,8 +1,18 @@
-// lib/screens/walking_screen.dart
+import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:pedometer/pedometer.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:intl/intl.dart';
+import 'package:health/health.dart';
 import '../services/health_repository.dart';
 import '../models/health_models.dart';
+import '../services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 
 class WalkingScreen extends StatefulWidget {
   const WalkingScreen({Key? key}) : super(key: key);
@@ -12,163 +22,993 @@ class WalkingScreen extends StatefulWidget {
 }
 
 class _WalkingScreenState extends State<WalkingScreen> {
-  int _steps = 0;
-  int _goal = 10000;
-  final TextEditingController _goalController = TextEditingController();
-  
-  Timer? _mockTimer;
+  bool _isWeekly = true;
+  String _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  DateTime _viewingWeekStart = _getStartOfWeek(DateTime.now());
+  DateTime _viewingMonthCal = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  int _refreshTrigger = 0;
+  bool _isSyncing = false;
+
+  StreamSubscription<StepCount>? _stepCountStream;
+  StreamSubscription<Position>? _positionStream;
+  Position? _lastKnownPosition;
+  String? _nickname;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-    _initMockPedometer();
-  }
-  
-  @override
-  void dispose() {
-    _mockTimer?.cancel();
-    super.dispose();
+    _loadNickname();
+    _initPermissions();
   }
 
-  void _loadData() {
-    final today = DateTime.now().toIso8601String().split('T')[0];
-    final stepData = HealthRepository.instance.getStepData(today);
-    setState(() {
-      _steps = stepData.steps;
-      _goal = stepData.goal;
-      _goalController.text = stepData.goal.toString();
-    });
+  Future<void> _loadNickname() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _nickname = prefs.getString('api_nickname');
+      });
+    }
   }
 
-  void _initMockPedometer() {
-    // macOS 환경의 CocoaPods 설치 문제로 iOS 네이티브 플러그인 빌드가 불가능하여, 
-    // 임시로 1초에 2걸음씩 증가하도록 시뮬레이션합니다.
-    _mockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+  static DateTime _getStartOfWeek(DateTime date) {
+    int daysToSubtract = date.weekday % 7; // Sunday is 0 in Android, but in Dart Monday is 1, Sunday is 7
+    if (date.weekday == 7) daysToSubtract = 0; // Sunday
+    return DateTime(date.year, date.month, date.day - daysToSubtract);
+  }
+
+  Future<void> _initPermissions() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return; 
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
       if (mounted) {
         setState(() {
-          _steps += 2;
+          _lastKnownPosition = pos;
         });
-        final today = DateTime.now().toIso8601String().split('T')[0];
-        HealthRepository.instance.saveStepData(StepData(date: today, steps: _steps, goal: _goal));
+      }
+    } catch (_) {}
+
+    // Request Activity Recognition permission on Android
+    if (Platform.isAndroid) {
+      try {
+        const channel = MethodChannel('com.example.health_guardian_flutter/ringtone_picker');
+        await channel.invokeMethod('requestActivityRecognition');
+      } catch (e) {
+        print("Error requesting activity recognition: $e");
+      }
+    }
+
+    _initStreams();
+  }
+
+  void _initStreams() {
+    _stepCountStream = Pedometer.stepCountStream.listen((StepCount event) {
+      _handleStepCount(event);
+    }, onError: (error) {
+      print("Pedometer error: $error");
+    });
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5, 
+      ),
+    ).listen((Position? position) {
+      if (position != null) {
+        _handleLocationUpdate(position);
       }
     });
   }
 
-  Future<void> _setGoal() async {
-    final newGoal = int.tryParse(_goalController.text);
-    if (newGoal != null && newGoal > 0) {
-      await HealthRepository.instance.setDefaultStepGoal(newGoal);
-      final today = DateTime.now().toIso8601String().split('T')[0];
-      await HealthRepository.instance.saveStepData(StepData(date: today, steps: _steps, goal: newGoal));
+  void _handleStepCount(StepCount event) {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    int currentTotalSteps = event.steps;
+    int lastSensorValue = HealthRepository.instance.getLastSensorValue();
+    
+    if (lastSensorValue == -1) {
+      HealthRepository.instance.saveLastSensorValue(currentTotalSteps);
+      return;
+    }
+    
+    int delta = currentTotalSteps - lastSensorValue;
+    if (delta > 0) {
+      final stepData = HealthRepository.instance.getStepData(today);
+      int newSteps = stepData.steps + delta;
+      HealthRepository.instance.saveStepData(StepData(date: today, steps: newSteps, goal: stepData.goal));
+      HealthRepository.instance.saveLastSensorValue(currentTotalSteps);
+      
+      if (mounted) {
+        setState(() { _refreshTrigger++; });
+      }
+    } else if (delta < 0) {
+       HealthRepository.instance.saveLastSensorValue(currentTotalSteps);
+    }
+  }
+
+  void _handleLocationUpdate(Position position) {
+    if (position.accuracy > 50) return; // Ignore low accuracy (> 50m) GPS points
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    var path = HealthRepository.instance.getDailyPath(today).toList();
+    
+    if (path.isNotEmpty) {
+      final lastPoint = path.last;
+      if (lastPoint.lat != 0.0 && lastPoint.lng != 0.0) {
+        final dist = Geolocator.distanceBetween(
+          lastPoint.lat, lastPoint.lng,
+          position.latitude, position.longitude,
+        );
+        if (dist > 500) return; // Ignore sudden 500m+ GPS spikes
+      }
+    }
+    
+    path.add(PathPoint(
+      lat: position.latitude,
+      lng: position.longitude,
+      timestamp: position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+    ));
+    
+    HealthRepository.instance.saveDailyPath(today, path);
+    if (mounted) {
       setState(() {
-        _goal = newGoal;
+        _lastKnownPosition = position;
+        if (_selectedDate == today) {
+          _refreshTrigger++;
+        }
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('목표가 설정되었습니다.')));
+    }
+  }
+
+  List<PathPoint> _filterGlitchPathPoints(List<PathPoint> raw) {
+    final valid = raw.where((p) => p.lat != 0.0 && p.lng != 0.0).toList();
+    if (valid.isEmpty) return [];
+    List<PathPoint> filtered = [valid.first];
+    for (int i = 1; i < valid.length; i++) {
+      final prev = filtered.last;
+      final curr = valid[i];
+      final dist = Geolocator.distanceBetween(prev.lat, prev.lng, curr.lat, curr.lng);
+      if (dist <= 500.0) {
+        filtered.add(curr);
+      }
+    }
+    return filtered;
+  }
+
+  Future<void> _syncWalkingData() async {
+    final userId = await ApiService.getUserId();
+    if (userId == null || userId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("로그인이 필요합니다. 설정에서 로그인해 주세요.")),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isSyncing = true;
+    });
+
+    try {
+      // 1. Sync Daily Paths
+      final localPathsMap = HealthRepository.instance.getAllDailyPaths();
+      final localPaths = localPathsMap.entries.map((entry) {
+        final date = entry.key;
+        final points = entry.value;
+        final jsonStr = jsonEncode(points.map((e) => e.toJson()).toList());
+        return DailyPath(
+          id: "${userId}_$date",
+          userId: userId,
+          date: date,
+          pathJson: jsonStr,
+        );
+      }).toList();
+
+      if (localPaths.isNotEmpty) {
+        await ApiService.syncPaths(userId, localPaths.map((e) => e.toJson()).toList());
+      }
+
+      final serverPathsJson = await ApiService.getPaths(userId);
+      final serverPaths = serverPathsJson.map((e) => DailyPath.fromJson(e)).toList();
+
+      final Map<String, DailyPath> mergedPaths = {};
+      for (var p in serverPaths) mergedPaths[p.date] = p;
+      for (var p in localPaths) {
+        if (mergedPaths.containsKey(p.date)) {
+          final serverLen = mergedPaths[p.date]!.pathJson.length;
+          final localLen = p.pathJson.length;
+          if (localLen >= serverLen) {
+            mergedPaths[p.date] = p;
+          }
+        } else {
+          mergedPaths[p.date] = p;
+        }
+      }
+
+      for (var dp in mergedPaths.values) {
+        try {
+          final List<dynamic> jsonList = jsonDecode(dp.pathJson);
+          final points = jsonList.map((e) => PathPoint.fromJson(e)).toList();
+          await HealthRepository.instance.saveDailyPath(dp.date, points, syncToServer: false);
+        } catch (e) {
+          print("Error decoding path for ${dp.date}: $e");
+        }
+      }
+
+      await ApiService.syncPaths(userId, mergedPaths.values.map((e) => e.toJson()).toList());
+
+      // 2. Sync Location Memos
+      final localLocMemosMap = HealthRepository.instance.getAllMemos();
+      final localLocMemos = localLocMemosMap.values.expand((element) => element).toList();
+
+      if (localLocMemos.isNotEmpty) {
+        await ApiService.syncMemos(userId, localLocMemos.map((e) => e.toJson()).toList());
+      }
+
+      final serverLocMemosJson = await ApiService.getMemos(userId);
+      final serverLocMemos = serverLocMemosJson.map((e) => LocationMemo.fromJson(e)).toList();
+
+      final Map<String, LocationMemo> mergedLocMemos = {};
+      for (var lm in serverLocMemos) mergedLocMemos["${lm.date}_${lm.id}"] = lm;
+      for (var lm in localLocMemos) mergedLocMemos["${lm.date}_${lm.id}"] = lm;
+
+      final locMemosByDate = <String, List<LocationMemo>>{};
+      for (var lm in mergedLocMemos.values) {
+        locMemosByDate.putIfAbsent(lm.date, () => []).add(lm);
+      }
+      for (final date in locMemosByDate.keys) {
+        await HealthRepository.instance.saveMemos(date, locMemosByDate[date]!, syncToServer: false);
+      }
+
+      await ApiService.syncMemos(userId, mergedLocMemos.values.map((e) => e.toJson()).toList());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("걷기 데이터 및 메모 서버 동기화 완료!")),
+        );
+        setState(() {
+          _refreshTrigger++;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("동기화 오류: $e")),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _syncWithFitnessApp() async {
+    try {
+      final health = Health();
+      await health.configure();
+      final types = [HealthDataType.STEPS];
+      
+      bool requested = await health.requestAuthorization(types);
+      if (!requested) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("건강 데이터 접근 권한이 거부되었습니다.")),
+          );
+        }
+        return;
+      }
+      
+      final parsedDate = DateFormat('yyyy-MM-dd').parse(_selectedDate);
+      final startOfDay = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+      final endOfDay = DateTime(parsedDate.year, parsedDate.month, parsedDate.day, 23, 59, 59);
+      
+      int? steps = await health.getTotalStepsInInterval(startOfDay, endOfDay);
+      steps ??= 0;
+      
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E293B),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Row(
+              children: [
+                Icon(
+                  Theme.of(context).platform == TargetPlatform.android ? Icons.sync : Icons.favorite,
+                  color: Theme.of(context).platform == TargetPlatform.android ? const Color(0xFF00E5FF) : const Color(0xFFFF2D55),
+                ),
+                const SizedBox(width: 8),
+                const Text("걸음 수 동기화", style: TextStyle(color: Colors.white)),
+              ],
+            ),
+            content: Text(
+              "선택한 날짜($_selectedDate)에 피트니스 앱에서 가져온 걸음 수는 $steps 걸음입니다.\n이 걸음 수로 동기화하시겠습니까?",
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("취소", style: TextStyle(color: Colors.grey)),
+              ),
+              TextButton(
+                onPressed: () {
+                  final stepData = HealthRepository.instance.getStepData(_selectedDate);
+                  HealthRepository.instance.saveStepData(StepData(
+                    date: _selectedDate,
+                    steps: steps!,
+                    goal: stepData.goal,
+                  ));
+                  setState(() {
+                    _refreshTrigger++;
+                  });
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("$_selectedDate 걸음 수가 $steps 걸음으로 동기화되었습니다.")),
+                  );
+                },
+                child: const Text("동기화", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("동기화 중 오류가 발생했습니다: $e")),
+        );
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final double progress = _goal > 0 ? (_steps / _goal).clamp(0.0, 1.0) : 0.0;
-    
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 40),
-              const Text("오늘의 걸음 (모의 동작 중)", style: TextStyle(color: Colors.white70, fontSize: 18)),
-              const SizedBox(height: 20),
-              Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 15,
-                      backgroundColor: Colors.white12,
-                      color: const Color(0xFF00E5FF),
+  void dispose() {
+    _stepCountStream?.cancel();
+    _positionStream?.cancel();
+    super.dispose();
+  }
+
+  void _showMapDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final rawPathPoints = HealthRepository.instance.getDailyPath(_selectedDate);
+            final pathPoints = _filterGlitchPathPoints(rawPathPoints);
+            final memos = HealthRepository.instance.getMemos(_selectedDate);
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.all(16),
+              child: Container(
+                height: 500,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("$_selectedDate 걷기 경로", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 2),
+                              Text("기록된 위치: ${pathPoints.length}개", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
                     ),
-                  ),
-                  Column(
-                    children: [
-                      Text(
-                        "$_steps",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 48,
-                          fontWeight: FontWeight.bold,
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: const Color(0xFF00E5FF), width: 2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: FlutterMap(
+                            options: MapOptions(
+                              initialCenter: pathPoints.isNotEmpty 
+                                ? LatLng(pathPoints.last.lat, pathPoints.last.lng)
+                                : memos.isNotEmpty
+                                  ? LatLng(memos.last.lat, memos.last.lng)
+                                  : _lastKnownPosition != null
+                                    ? LatLng(_lastKnownPosition!.latitude, _lastKnownPosition!.longitude)
+                                    : const LatLng(37.5665, 126.9780), // Default to Seoul
+                              initialZoom: 17.0,
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'com.example.health_guardian_flutter',
+                              ),
+                              if (pathPoints.isNotEmpty)
+                                PolylineLayer(
+                                  polylines: [
+                                    Polyline(
+                                      points: pathPoints.map((p) => LatLng(p.lat, p.lng)).toList(),
+                                      color: Colors.blue,
+                                      strokeWidth: 6.0,
+                                    ),
+                                  ],
+                                ),
+                              MarkerLayer(
+                                markers: [
+                                  if (_lastKnownPosition != null)
+                                    Marker(
+                                      point: LatLng(_lastKnownPosition!.latitude, _lastKnownPosition!.longitude),
+                                      width: 30,
+                                      height: 30,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.withOpacity(0.3),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          width: 14,
+                                          height: 14,
+                                          decoration: const BoxDecoration(
+                                            color: Colors.blue,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ...memos.map((m) => Marker(
+                                    point: LatLng(m.lat, m.lng),
+                                    width: 40,
+                                    height: 40,
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        showDialog(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            backgroundColor: const Color(0xFF1E293B),
+                                            title: Text("📍 ${m.time} 메모", style: const TextStyle(color: Colors.white)),
+                                            content: Text(m.memo, style: const TextStyle(color: Colors.white70)),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(ctx),
+                                                child: const Text("닫기", style: TextStyle(color: Color(0xFF00E5FF))),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                      child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                                    ),
+                                  )).toList(),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const Text(
-                        "걸음",
-                        style: TextStyle(color: Colors.white70, fontSize: 20),
-                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+        );
+      }
+    );
+  }
+
+  void _showSetGoalDialog() {
+    final stepData = HealthRepository.instance.getStepData(_selectedDate);
+    final TextEditingController _goalController = TextEditingController(text: stepData.goal.toString());
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text("목표 걸음 수 설정", style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: _goalController,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            labelText: "목표 달성 수",
+            labelStyle: TextStyle(color: Colors.grey),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () {
+              final newGoal = int.tryParse(_goalController.text);
+              if (newGoal != null && newGoal > 0) {
+                HealthRepository.instance.setDefaultStepGoal(newGoal);
+                HealthRepository.instance.saveStepData(StepData(date: _selectedDate, steps: stepData.steps, goal: newGoal));
+                setState(() { _refreshTrigger++; });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("설정", style: TextStyle(color: Color(0xFF00E5FF))),
+          ),
+        ],
+      )
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F172A),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("👟 걷기 만보기", style: TextStyle(color: Color(0xFF00E5FF), fontSize: 20, fontWeight: FontWeight.bold)),
+                      if (_nickname != null && _nickname!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          "👤 $_nickname",
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _isSyncing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.sync, color: Color(0xFF00E5FF)),
+                            onPressed: _syncWalkingData,
+                          ),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 40),
-              Card(
-                color: Colors.white12,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
+            ),
+            // Top Toggle
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () => setState(() => _isWeekly = true),
+                    child: Text(
+                      "주간 단위",
+                      style: TextStyle(
+                        fontSize: _isWeekly ? 24 : 16,
+                        color: _isWeekly ? Colors.white : Colors.grey,
+                        fontWeight: _isWeekly ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Text("|", style: TextStyle(color: Colors.grey, fontSize: 20)),
+                  const SizedBox(width: 16),
+                  GestureDetector(
+                    onTap: () => setState(() => _isWeekly = false),
+                    child: Text(
+                      "월간 단위",
+                      style: TextStyle(
+                        fontSize: !_isWeekly ? 24 : 16,
+                        color: !_isWeekly ? Colors.white : Colors.grey,
+                        fontWeight: !_isWeekly ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Steps Summary
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildSelectedDayDetails(),
+            ),
+            const SizedBox(height: 8),
+            // Calendar header
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildCalendarHeader(),
+            ),
+            // Calendar grid (takes remaining space if monthly, compact if weekly)
+            _isWeekly
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+                  child: _buildCalendarGrid(),
+                )
+              : Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+                    child: _buildCalendarGrid(),
+                  ),
+                ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showMapDialog,
+        backgroundColor: const Color(0xFF00E5FF),
+        child: const Icon(Icons.map, color: Colors.black),
+      ),
+    );
+  }
+
+  Widget _buildCalendarHeader() {
+    final monthStr = _isWeekly 
+      ? DateFormat('yyyy년 M월').format(_viewingWeekStart)
+      : DateFormat('yyyy년 M월').format(_viewingMonthCal);
+      
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0x1AFFFFFF),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_left, color: Colors.white, size: 32),
+            onPressed: () {
+              setState(() {
+                if (_isWeekly) {
+                  _viewingWeekStart = _viewingWeekStart.subtract(const Duration(days: 7));
+                } else {
+                  _viewingMonthCal = DateTime(_viewingMonthCal.year, _viewingMonthCal.month - 1, 1);
+                }
+              });
+            },
+          ),
+          Text(monthStr, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          IconButton(
+            icon: const Icon(Icons.arrow_right, color: Colors.white, size: 32),
+            onPressed: () {
+              setState(() {
+                if (_isWeekly) {
+                  _viewingWeekStart = _viewingWeekStart.add(const Duration(days: 7));
+                } else {
+                  _viewingMonthCal = DateTime(_viewingMonthCal.year, _viewingMonthCal.month + 1, 1);
+                }
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalendarGrid() {
+    final daysToRender = <DateTime?>[];
+    if (_isWeekly) {
+      for (int i = 0; i < 7; i++) {
+        daysToRender.add(_viewingWeekStart.add(Duration(days: i)));
+      }
+    } else {
+      final firstDayOfMonth = DateTime(_viewingMonthCal.year, _viewingMonthCal.month, 1);
+      final daysInMonth = DateTime(_viewingMonthCal.year, _viewingMonthCal.month + 1, 0).day;
+      
+      int firstWeekday = firstDayOfMonth.weekday; // 1 = Monday, 7 = Sunday
+      if (firstWeekday == 7) firstWeekday = 0; // Make Sunday 0
+      
+      for (int i = 0; i < firstWeekday; i++) {
+        daysToRender.add(null);
+      }
+      for (int i = 1; i <= daysInMonth; i++) {
+        daysToRender.add(DateTime(_viewingMonthCal.year, _viewingMonthCal.month, i));
+      }
+    }
+
+    final rows = <List<DateTime?>>[];
+    for (int i = 0; i < daysToRender.length; i += 7) {
+      rows.add(daysToRender.sublist(i, (i + 7 > daysToRender.length) ? daysToRender.length : i + 7));
+    }
+
+    return GestureDetector(
+      onHorizontalDragEnd: (details) {
+        if (details.primaryVelocity == null) return;
+        if (details.primaryVelocity! < 0) {
+          setState(() {
+            if (_isWeekly) {
+              _viewingWeekStart = _viewingWeekStart.add(const Duration(days: 7));
+            } else {
+              _viewingMonthCal = DateTime(_viewingMonthCal.year, _viewingMonthCal.month + 1, 1);
+            }
+          });
+        } else if (details.primaryVelocity! > 0) {
+          setState(() {
+            if (_isWeekly) {
+              _viewingWeekStart = _viewingWeekStart.subtract(const Duration(days: 7));
+            } else {
+              _viewingMonthCal = DateTime(_viewingMonthCal.year, _viewingMonthCal.month - 1, 1);
+            }
+          });
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0x1AFFFFFF),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisSize: _isWeekly ? MainAxisSize.min : MainAxisSize.max,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: ["일", "월", "화", "수", "목", "금", "토"].map((day) {
+                Color color = Colors.white;
+                if (day == "일") color = Colors.red;
+                if (day == "토") color = Colors.blue;
+                return Expanded(child: Center(child: Text(day, style: TextStyle(color: color, fontSize: 12))));
+              }).toList(),
+            ),
+            const SizedBox(height: 8),
+            ...rows.map((row) {
+              final rowWidget = Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: List.generate(7, (index) {
+                  if (index < row.length && row[index] != null) {
+                    return Expanded(child: _buildDayCell(row[index]!));
+                  } else {
+                    return const Expanded(child: SizedBox());
+                  }
+                }),
+              );
+              return _isWeekly
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: rowWidget,
+                    )
+                  : Expanded(child: rowWidget);
+            }).toList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDayCell(DateTime date) {
+    final fullDate = DateFormat('yyyy-MM-dd').format(date);
+    final dayStr = date.day.toString();
+    
+    final stepData = HealthRepository.instance.getStepData(fullDate);
+    final steps = stepData.steps;
+    final dailyGoal = stepData.goal > 0 ? stepData.goal : HealthRepository.instance.getDefaultStepGoal();
+    final progress = (steps / dailyGoal).clamp(0.0, 1.0);
+    
+    final hasMemos = HealthRepository.instance.getMemos(fullDate).isNotEmpty;
+    final hasPath = HealthRepository.instance.getDailyPath(fullDate).isNotEmpty;
+    final isSelected = fullDate == _selectedDate;
+    
+    final sizeMod = _isWeekly ? 40.0 : 24.0;
+    final textMod = _isWeekly ? 14.0 : 12.0;
+    final isGoalReached = steps > 0 && steps >= dailyGoal;
+    final cellColor = isGoalReached ? const Color(0xFFFFD700) : const Color(0xFF00E5FF);
+
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedDate = fullDate);
+        _showMapDialog();
+      },
+      child: Container(
+        margin: const EdgeInsets.all(2),
+        padding: EdgeInsets.symmetric(vertical: _isWeekly ? 8.0 : 4.0),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0x3300E5FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Text(dayStr, style: TextStyle(color: Colors.white, fontSize: textMod)),
+            SizedBox(height: _isWeekly ? 8 : 2),
+            SizedBox(
+              width: sizeMod,
+              height: sizeMod,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    value: progress,
+                    color: cellColor,
+                    backgroundColor: const Color(0x33FFFFFF),
+                    strokeWidth: _isWeekly ? 4.0 : 2.0,
+                  ),
+                  if (hasMemos || hasPath)
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: Container(
+                        width: _isWeekly ? 8 : 6,
+                        height: _isWeekly ? 8 : 6,
+                        decoration: BoxDecoration(
+                          color: hasPath ? const Color(0xFF4285F4) : const Color(0xFFFFB74D),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (_isWeekly) ...[
+              const SizedBox(height: 8),
+              Text(
+                isGoalReached ? "⭐ $steps" : "$steps",
+                style: TextStyle(
+                  color: steps > 0 ? cellColor : Colors.grey,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ]
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedDayDetails() {
+    final stepData = HealthRepository.instance.getStepData(_selectedDate);
+    final dailyGoal = stepData.goal > 0 ? stepData.goal : HealthRepository.instance.getDefaultStepGoal();
+    final progress = (stepData.steps / dailyGoal).clamp(0.0, 1.0);
+
+    final isAndroid = Theme.of(context).platform == TargetPlatform.android;
+    final healthColor = isAndroid ? const Color(0xFF00E5FF) : const Color(0xFFFF2D55);
+    final healthIcon = isAndroid ? Icons.directions_walk : Icons.favorite;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0x1AFFFFFF),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          // Circular progress with steps count
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: CircularProgressIndicator(
+                  value: progress,
+                  strokeWidth: 10,
+                  backgroundColor: Colors.white12,
+                  color: const Color(0xFF00E5FF),
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "${stepData.steps}",
+                    style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                  const Text("걸음", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          // Right side stats with sync button overlay
+          Expanded(
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.flag, color: Color(0xFF00E5FF)),
-                      const SizedBox(width: 16),
-                      const Expanded(
-                        child: Text("목표 걸음 수", style: TextStyle(color: Colors.white)),
+                      Text(
+                        _selectedDate,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
                       ),
-                      SizedBox(
-                        width: 80,
-                        child: TextField(
-                          controller: _goalController,
-                          keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white),
-                          textAlign: TextAlign.right,
-                          decoration: const InputDecoration(
-                            border: UnderlineInputBorder(),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${(progress * 100).toInt()}% 달성",
+                        style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("목표", style: TextStyle(color: Colors.white70, fontSize: 13)),
+                          Row(
+                            children: [
+                              Text("$dailyGoal", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                              GestureDetector(
+                                onTap: _showSetGoalDialog,
+                                child: const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(Icons.edit, color: Colors.grey, size: 16),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _setGoal,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00E5FF),
-                          foregroundColor: Colors.black,
-                        ),
-                        child: const Text("설정"),
+                        ],
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                "달성률: ${(progress * 100).toStringAsFixed(1)}%",
-                style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
-              const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text(
-                  "안내: 현재 Mac 환경에 iOS 빌드용 패키지 관리자(CocoaPods)가 미설치 상태여서 네이티브 센서 접근이 불가능합니다. 임시로 가상의 걸음 수가 올라가도록 조치했습니다.",
-                  style: TextStyle(color: Colors.redAccent, fontSize: 12),
-                  textAlign: TextAlign.center,
+                // Sync button positioned at top-right of stats area
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Tooltip(
+                    message: isAndroid ? "구글 피트니스 동기화" : "애플 건강 동기화",
+                    child: InkWell(
+                      onTap: _syncWithFitnessApp,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: healthColor.withOpacity(0.2),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: healthColor, width: 1.5),
+                        ),
+                        child: Icon(healthIcon, size: 16, color: healthColor),
+                      ),
+                    ),
+                  ),
                 ),
-              )
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

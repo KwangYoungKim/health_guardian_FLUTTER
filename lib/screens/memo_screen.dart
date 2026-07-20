@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/memo_storage.dart';
 import 'memo_editor_screen.dart';
+import '../services/api_service.dart';
 
 class MemoScreen extends StatefulWidget {
   const MemoScreen({Key? key}) : super(key: key);
@@ -15,11 +17,86 @@ class _MemoScreenState extends State<MemoScreen> {
   List<RichMemo> _memos = [];
   String _searchQuery = "";
   Set<String> _collapsedGroups = {};
+  bool _isSyncing = false;
+  String? _nickname;
 
   @override
   void initState() {
     super.initState();
+    _loadNickname();
     _loadMemos();
+  }
+
+  Future<void> _loadNickname() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _nickname = prefs.getString('api_nickname');
+      });
+    }
+  }
+
+  Future<void> _syncMemos() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('api_user_id');
+    if (userId == null || userId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("로그인이 필요합니다. 설정에서 로그인해 주세요.")),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isSyncing = true;
+    });
+
+    try {
+      final localMemos = await _storage.getAllMemos();
+
+      if (localMemos.isNotEmpty) {
+        await ApiService.syncRichMemos(userId, localMemos.map((e) => e.toJson()).toList());
+      }
+
+      final serverMemosJson = await ApiService.getRichMemos(userId);
+      final serverMemos = serverMemosJson.map((e) => RichMemo.fromJson(e)).toList();
+
+      final Map<String, RichMemo> mergedMemos = {};
+      for (var m in serverMemos) mergedMemos[m.id] = m;
+      for (var m in localMemos) {
+        if (mergedMemos.containsKey(m.id)) {
+          if (m.lastModified > mergedMemos[m.id]!.lastModified) {
+            mergedMemos[m.id] = m;
+          }
+        } else {
+          mergedMemos[m.id] = m;
+        }
+      }
+
+      final finalMemos = mergedMemos.values.toList();
+      await _storage.saveAllMemos(finalMemos);
+      await ApiService.syncRichMemos(userId, finalMemos.map((e) => e.toJson()).toList());
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("메모 동기화 완료!")),
+        );
+        _loadMemos();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("메모 동기화 실패: $e")),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadMemos() async {
@@ -125,13 +202,50 @@ class _MemoScreenState extends State<MemoScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "메모",
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF00E5FF),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "메모",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF00E5FF),
+                        ),
+                      ),
+                      if (_nickname != null && _nickname!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          "👤 $_nickname",
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _isSyncing
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.sync, color: Color(0xFF00E5FF)),
+                            onPressed: _syncMemos,
+                          ),
+                    ],
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               TextField(

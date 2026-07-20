@@ -79,7 +79,7 @@ class MeetRepository {
   }
 
   String getUserId() {
-    return _prefs.getString('uuid') ?? _sessionId;
+    return _prefs.getString('api_user_id') ?? _prefs.getString('uuid') ?? _sessionId;
   }
 
   String? getActiveRoomCode() {
@@ -117,10 +117,11 @@ class MeetRepository {
   }
 
   String getUserName() {
-    return _prefs.getString('user_name') ?? "User_${_sessionId.substring(0, 4)}";
+    return _prefs.getString('api_nickname') ?? _prefs.getString('user_name') ?? "User_${_sessionId.substring(0, 4)}";
   }
 
   Future<void> setUserName(String name) async {
+    await _prefs.setString('api_nickname', name);
     await _prefs.setString('user_name', name);
     await _database.ref().child("users").child(getUserId()).child("name").set(name);
   }
@@ -163,6 +164,60 @@ class MeetRepository {
     final seen = <String>{};
     final distinctUsers = users.where((u) => seen.add(u['name']!.toLowerCase())).toList();
     onUsersFetched(distinctUsers);
+  }
+
+  Future<List<MeetMember>> getRoomMembersOnce(String roomCode) async {
+    try {
+      final event = await _database.ref().child("meets").child(roomCode).child("members").once();
+      final snapshot = event.snapshot;
+      List<MeetMember> memberList = [];
+      if (snapshot.exists && snapshot.value is Map) {
+        final data = snapshot.value as Map;
+        data.forEach((key, value) {
+          if (value is Map) {
+            try {
+              final id = value['id']?.toString();
+              if (id == null) return;
+              final name = value['name']?.toString() ?? "Unknown";
+              final lat = (value['lat'] as num?)?.toDouble();
+              final lon = (value['lon'] as num?)?.toDouble();
+              if (lat == null || lon == null) return;
+              final color = (value['color'] as num?)?.toInt() ?? 0xFF00E5FF;
+              
+              List<LatLng> pathList = [];
+              if (value['path'] is Map) {
+                final pathMap = value['path'] as Map;
+                final sortedKeys = pathMap.keys.map((k) => k.toString()).toList()..sort();
+                for (var pKey in sortedKeys) {
+                  final pVal = pathMap[pKey];
+                  if (pVal is Map) {
+                    final pLat = (pVal['lat'] as num?)?.toDouble();
+                    final pLon = (pVal['lon'] as num?)?.toDouble();
+                    if (pLat != null && pLon != null) {
+                      pathList.add(LatLng(pLat, pLon));
+                    }
+                  }
+                }
+              }
+              final isParticipating = value['isParticipating'] == true || value['isParticipating'] == null;
+
+              memberList.add(MeetMember(
+                id: id,
+                name: name,
+                location: LatLng(lat, lon),
+                color: color,
+                path: pathList,
+                isParticipating: isParticipating
+              ));
+            } catch (_) {}
+          }
+        });
+      }
+      return memberList;
+    } catch (e) {
+      print("Error in getRoomMembersOnce: $e");
+      return [];
+    }
   }
 
   Future<void> createRoom(String name, LatLng destination, Function(String?) onComplete) async {
@@ -244,7 +299,10 @@ class MeetRepository {
               
               List<LatLng> pathList = [];
               if (value['path'] is Map) {
-                (value['path'] as Map).forEach((pKey, pVal) {
+                final pathMap = value['path'] as Map;
+                final sortedKeys = pathMap.keys.map((k) => k.toString()).toList()..sort();
+                for (var pKey in sortedKeys) {
+                  final pVal = pathMap[pKey];
                   if (pVal is Map) {
                     final pLat = (pVal['lat'] as num?)?.toDouble();
                     final pLon = (pVal['lon'] as num?)?.toDouble();
@@ -252,7 +310,7 @@ class MeetRepository {
                       pathList.add(LatLng(pLat, pLon));
                     }
                   }
-                });
+                }
               }
 
               final isParticipating = value['isParticipating'] == true || value['isParticipating'] == null;

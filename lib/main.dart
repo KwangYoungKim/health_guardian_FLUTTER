@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/alarm_screen.dart';
 import 'screens/medication_screen.dart';
 import 'screens/hospital_screen.dart';
 import 'screens/walking_screen.dart';
 import 'screens/memo_screen.dart';
 import 'screens/meet_screen.dart';
+import 'screens/restore_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/register_screen.dart';
 import 'services/meet_repository.dart';
 
 import 'services/health_repository.dart';
 import 'services/notification_service.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('ko', null);
   try {
     await Firebase.initializeApp(
       options: const FirebaseOptions(
@@ -50,8 +56,27 @@ class HealthGuardianApp extends StatelessWidget {
           surface: Color(0x33FFFFFF),
           onSurface: Colors.white,
         ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: Color(0xFF1E293B),
+          contentTextStyle: TextStyle(color: Colors.white, fontSize: 14),
+          actionTextColor: Color(0xFF00E5FF),
+        ),
       ),
-      home: const MainScreen(),
+      home: FutureBuilder<String?>(
+        future: SharedPreferences.getInstance().then((prefs) => prefs.getString('api_user_id')),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: Color(0xFF0F172A),
+              body: Center(child: CircularProgressIndicator(color: Color(0xFF00E5FF))),
+            );
+          }
+          if (snapshot.hasData && snapshot.data != null && snapshot.data!.isNotEmpty) {
+            return const MainScreen();
+          }
+          return const RegisterScreen();
+        },
+      ),
     );
   }
 }
@@ -73,6 +98,7 @@ class _MainScreenState extends State<MainScreen> {
     const WalkingScreen(),
     const MemoScreen(),
     MeetScreen(meetRepo: MeetRepository.instance),
+    const SettingsScreen(),
   ];
 
   @override
@@ -87,7 +113,11 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         child: SafeArea(
-          child: _screens[_selectedIndex],
+          child: Stack(
+            children: [
+              _screens[_selectedIndex],
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: Theme(
@@ -111,6 +141,7 @@ class _MainScreenState extends State<MainScreen> {
             BottomNavigationBarItem(icon: Text("👟", style: TextStyle(fontSize: 20)), label: '걷기'),
             BottomNavigationBarItem(icon: Text("📝", style: TextStyle(fontSize: 20)), label: '메모'),
             BottomNavigationBarItem(icon: Text("🤝", style: TextStyle(fontSize: 20)), label: 'Meet'),
+            BottomNavigationBarItem(icon: Text("⚙️", style: TextStyle(fontSize: 20)), label: '설정'),
           ],
         ),
       ),

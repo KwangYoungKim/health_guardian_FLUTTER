@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 class MemoBlock {
   final String id;
@@ -66,12 +68,14 @@ class RichMemo {
       };
 
   factory RichMemo.fromJson(Map<String, dynamic> json) => RichMemo(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        contentJson: json['contentJson'] as String,
-        lastModified: json['lastModified'] as int,
-        createdAt: json['createdAt'] as int? ?? json['lastModified'] as int,
-        pinned: json['pinned'] as bool? ?? false,
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        contentJson: json['contentJson'] as String? ?? '',
+        lastModified: json['lastModified'] is String ? int.tryParse(json['lastModified']) ?? 0 : (json['lastModified'] as int? ?? 0),
+        createdAt: json['createdAt'] != null 
+            ? (json['createdAt'] is String ? int.tryParse(json['createdAt']) ?? 0 : (json['createdAt'] as int? ?? 0))
+            : (json['lastModified'] is String ? int.tryParse(json['lastModified']) ?? 0 : (json['lastModified'] as int? ?? 0)),
+        pinned: json['pinned'] is String ? json['pinned'] == 'true' : (json['pinned'] as bool? ?? false),
       );
 }
 
@@ -134,6 +138,13 @@ class MemoStorage {
       final file = await _memoFile;
       final jsonString = jsonEncode(memos.map((m) => m.toJson()).toList());
       await file.writeAsString(jsonString);
+
+      // Sync to backend if logged in
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('api_user_id');
+      if (userId != null) {
+        await ApiService.syncRichMemos(userId, memos.map((m) => m.toJson()).toList());
+      }
     } catch (e) {
       print('saveAllMemos error: $e');
     }
