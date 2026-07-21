@@ -1378,37 +1378,48 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
       if (!member.isParticipating) continue;
 
       final filteredMemberPath = filterGlitchLatLngPoints(member.path);
-      if (filteredMemberPath.length >= 2) {
+      List<LatLng> fullRoutePoints = [];
+
+      if (filteredMemberPath.isNotEmpty) {
+        fullRoutePoints.addAll(filteredMemberPath);
+      }
+
+      if (member.location.latitude != 0.0 && member.location.longitude != 0.0) {
+        if (fullRoutePoints.isEmpty ||
+            Geolocator.distanceBetween(
+              fullRoutePoints.last.latitude, fullRoutePoints.last.longitude,
+              member.location.latitude, member.location.longitude
+            ) > 0.5) {
+          fullRoutePoints.add(member.location);
+        }
+      }
+
+      final targetDest = _tempDestination ?? _destination;
+      if (targetDest.latitude != 0.0 && targetDest.longitude != 0.0) {
+        if (fullRoutePoints.isNotEmpty) {
+          final distToDest = Geolocator.distanceBetween(
+            fullRoutePoints.last.latitude, fullRoutePoints.last.longitude,
+            targetDest.latitude, targetDest.longitude
+          );
+          if (distToDest > 1.0) {
+            fullRoutePoints.add(targetDest);
+          }
+        }
+      }
+
+      if (fullRoutePoints.length >= 2) {
         // 1. Dark Outline Polyline (배경 지도와 선명하게 분리해 주는 검은색 외곽선)
         polylines.add(Polyline(
-          points: filteredMemberPath,
+          points: fullRoutePoints,
           color: const Color(0xFF0F172A),
           strokeWidth: 9.0,
         ));
         // 2. Bright Vibrant Member Color Polyline (참여자 고유 색상 메인 선)
         polylines.add(Polyline(
-          points: filteredMemberPath,
+          points: fullRoutePoints,
           color: Color(member.color).withOpacity(1.0),
           strokeWidth: 5.0,
         ));
-      } else if (filteredMemberPath.length == 1 && (member.location.latitude != 0.0 || member.location.longitude != 0.0)) {
-        final dist = Geolocator.distanceBetween(
-          filteredMemberPath.first.latitude, filteredMemberPath.first.longitude,
-          member.location.latitude, member.location.longitude
-        );
-        if (dist > 0.5) {
-          final pts = [filteredMemberPath.first, member.location];
-          polylines.add(Polyline(
-            points: pts,
-            color: const Color(0xFF0F172A),
-            strokeWidth: 9.0,
-          ));
-          polylines.add(Polyline(
-            points: pts,
-            color: Color(member.color).withOpacity(1.0),
-            strokeWidth: 5.0,
-          ));
-        }
       }
 
       if (member.location.latitude != 0.0 || member.location.longitude != 0.0) {
