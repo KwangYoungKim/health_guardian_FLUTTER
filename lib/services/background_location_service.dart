@@ -10,12 +10,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/health_models.dart';
 import 'api_service.dart';
 
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 class BackgroundLocationService {
   static final BackgroundLocationService instance = BackgroundLocationService._internal();
   BackgroundLocationService._internal();
 
   Future<void> initializeService() async {
     final service = FlutterBackgroundService();
+
+    // ⚡ Create Android Notification Channel to prevent Bad notification crash on Android 13/14/15/16
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'smart_health_location_service',
+      '24시간 무중단 동선 추적 서비스',
+      description: '백그라운드에서 실시간 위치를 안전하게 기록합니다.',
+      importance: Importance.low,
+    );
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
 
     await service.configure(
       androidConfiguration: AndroidConfiguration(
@@ -26,6 +41,7 @@ class BackgroundLocationService {
         notificationChannelId: 'smart_health_location_service',
         initialNotificationTitle: "👟 Smart Health 24시간 무중단 동선 추적",
         initialNotificationContent: "앱이 종료되어도 백그라운드에서 실시간 이동 경로가 자동 수집됩니다.",
+        foregroundNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(
         autoStart: true,
