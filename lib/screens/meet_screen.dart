@@ -647,7 +647,7 @@ class _LobbyViewState extends State<LobbyView> {
               final filteredPath = filterGlitchLatLngPoints(m.path);
               List<LatLng> drawPoints = [];
               if (filteredPath.length >= 2) {
-                drawPoints = filteredPath;
+                drawPoints = List.from(filteredPath);
               } else if (filteredPath.length == 1 && (m.location.latitude != 0.0 || m.location.longitude != 0.0)) {
                 final dist = Geolocator.distanceBetween(
                   filteredPath.first.latitude, filteredPath.first.longitude,
@@ -655,12 +655,6 @@ class _LobbyViewState extends State<LobbyView> {
                 );
                 if (dist > 0.5) {
                   drawPoints = [filteredPath.first, m.location];
-                } else if (dest.latitude != 0.0 && dest.longitude != 0.0) {
-                  drawPoints = [filteredPath.first, dest];
-                }
-              } else if (m.location.latitude != 0.0 || m.location.longitude != 0.0) {
-                if (dest.latitude != 0.0 && dest.longitude != 0.0) {
-                  drawPoints = [m.location, dest];
                 }
               }
 
@@ -1443,19 +1437,6 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
               member.location.latitude, member.location.longitude
             ) > 0.5) {
           fullRoutePoints.add(member.location);
-        }
-      }
-
-      final targetDest = _tempDestination ?? _destination;
-      if (targetDest.latitude != 0.0 && targetDest.longitude != 0.0) {
-        if (fullRoutePoints.isNotEmpty) {
-          final distToDest = Geolocator.distanceBetween(
-            fullRoutePoints.last.latitude, fullRoutePoints.last.longitude,
-            targetDest.latitude, targetDest.longitude
-          );
-          if (distToDest > 1.0) {
-            fullRoutePoints.add(targetDest);
-          }
         }
       }
 
