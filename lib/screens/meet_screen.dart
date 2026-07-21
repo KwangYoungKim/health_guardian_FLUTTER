@@ -1024,23 +1024,9 @@ class _CreateOrEditRoomViewState extends State<CreateOrEditRoomView> {
                     markers: [
                       Marker(
                         point: _tempDest!,
-                        width: 50,
-                        height: 50,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent,
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
-                              ),
-                              child: const Text("🚩 목적지", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                            ),
-                            const Icon(Icons.flag, color: Colors.red, size: 28),
-                          ],
-                        ),
+                        width: 44,
+                        height: 44,
+                        child: const Icon(Icons.flag, color: Colors.red, size: 40),
                       ),
                     ],
                   ),
@@ -1292,23 +1278,9 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
     markers.add(Marker(
       point: _tempDestination ?? _destination,
-      width: 50,
-      height: 50,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.redAccent,
-              borderRadius: BorderRadius.circular(6),
-              boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
-            ),
-            child: const Text("🚩 목적지", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-          ),
-          const Icon(Icons.flag, color: Colors.red, size: 28),
-        ],
-      ),
+      width: 44,
+      height: 44,
+      child: const Icon(Icons.flag, color: Colors.red, size: 40),
     ));
 
     for (var member in _members) {
@@ -1354,16 +1326,27 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
         
         markers.add(Marker(
           point: member.location,
-          width: 80,
-          height: 60,
+          width: 90,
+          height: 55,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                color: Colors.black54,
-                child: Text(displayStr, style: const TextStyle(color: Colors.white, fontSize: 10)),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black87,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Color(member.color), width: 1),
+                ),
+                child: Text(
+                  displayStr,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                ),
               ),
-              Icon(Icons.person_pin_circle, color: Color(member.color), size: 30),
+              Icon(Icons.person_pin_circle, color: Color(member.color), size: 28),
             ],
           ),
         ));
@@ -1491,40 +1474,49 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         Card(
           color: const Color(0x22FFFFFF),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text("참여자 목록 (${_members.length}명)", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 SizedBox(
-                  height: 60,
+                  height: 75,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: _members.length,
                     itemBuilder: (context, index) {
                       final m = _members[index];
                       return Padding(
-                        padding: const EdgeInsets.only(right: 12.0),
+                        padding: const EdgeInsets.only(right: 14.0),
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             CircleAvatar(
                               backgroundColor: Color(m.color),
-                              radius: 16,
-                              child: Text(m.name.isNotEmpty ? m.name[0] : "?", style: const TextStyle(color: Colors.white, fontSize: 12)),
+                              radius: 18,
+                              child: Text(m.name.isNotEmpty ? m.name[0] : "?", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              m.name.length > 5 ? m.name.substring(0, 5) : m.name,
-                              style: TextStyle(
-                                color: m.isParticipating ? Colors.white : Colors.grey,
-                                fontSize: 10,
-                                decoration: m.isParticipating ? null : TextDecoration.lineThrough
-                              )
+                            SizedBox(
+                              width: 60,
+                              child: Text(
+                                m.name,
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: m.isParticipating ? Colors.white : Colors.grey,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  decoration: m.isParticipating ? null : TextDecoration.lineThrough
+                                ),
+                              ),
                             )
                           ],
                         ),
