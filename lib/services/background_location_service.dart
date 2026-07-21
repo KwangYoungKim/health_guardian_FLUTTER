@@ -26,7 +26,6 @@ class BackgroundLocationService {
         notificationChannelId: 'smart_health_location_service',
         initialNotificationTitle: "👟 Smart Health 24시간 무중단 동선 추적",
         initialNotificationContent: "앱이 종료되어도 백그라운드에서 실시간 이동 경로가 자동 수집됩니다.",
-        foregroundNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(
         autoStart: true,
