@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:latlong2/latlong.dart';
@@ -28,6 +29,30 @@ class RoomInfo {
     required this.isParticipating,
     required this.createdAt,
   });
+
+  Map<String, dynamic> toJson() => {
+    'roomCode': roomCode,
+    'name': name,
+    'destLat': destLat,
+    'destLon': destLon,
+    'memberCount': memberCount,
+    'status': status,
+    'isHost': isHost,
+    'isParticipating': isParticipating,
+    'createdAt': createdAt,
+  };
+
+  factory RoomInfo.fromJson(Map<String, dynamic> json) => RoomInfo(
+    roomCode: json['roomCode']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    destLat: (json['destLat'] as num?)?.toDouble() ?? 0.0,
+    destLon: (json['destLon'] as num?)?.toDouble() ?? 0.0,
+    memberCount: (json['memberCount'] as num?)?.toInt() ?? 0,
+    status: json['status']?.toString() ?? 'CLOSED',
+    isHost: json['isHost'] == true,
+    isParticipating: json['isParticipating'] == true,
+    createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
+  );
 }
 
 class MeetMember {
@@ -522,58 +547,118 @@ class MeetRepository {
     await setParticipatingRoom(roomCode, isParticipating);
   }
 
+  // --- Local Cache for Closed Meets ---
+  List<RoomInfo> getCachedClosedMeets() {
+    final String? str = _prefs.getString('cached_closed_meets');
+    if (str == null || str.isEmpty) return [];
+    try {
+      final List<dynamic> jsonList = jsonDecode(str);
+      return jsonList.map((e) => RoomInfo.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> saveCachedClosedMeets(List<RoomInfo> closedRooms) async {
+    try {
+      final str = jsonEncode(closedRooms.map((r) => r.toJson()).toList());
+      await _prefs.setString('cached_closed_meets', str);
+    } catch (e) {
+      print("Error caching closed meets: $e");
+    }
+  }
+
   Stream<List<RoomInfo>> observeMyMeets() {
     final myId = getCurrentUserId();
     if (myId == null) return const Stream.empty();
     final cleanMyId = myId.trim();
 
-    return _database.ref().child("meets").onValue.map((event) {
-      final snapshot = event.snapshot;
-      List<RoomInfo> rooms = [];
-      if (snapshot.value != null && snapshot.value is Map) {
-        final data = snapshot.value as Map;
-        data.forEach((roomCode, childVal) {
-          if (childVal is Map) {
-            final hostId = childVal['hostId']?.toString().trim();
-            final membersSnapshot = childVal['members'] as Map?;
-            
-            bool isHost = (hostId != null && hostId == cleanMyId);
-            bool isMember = (membersSnapshot != null && (membersSnapshot.containsKey(cleanMyId) || membersSnapshot.containsKey(myId)));
+    late StreamController<List<RoomInfo>> controller;
+    StreamSubscription? firebaseSub;
 
-            if (isHost || isMember) {
-              final name = childVal['name']?.toString() ?? "이름 없음";
-              final status = childVal['status']?.toString() ?? "ACTIVE";
-              final lat = (childVal['destLat'] as num?)?.toDouble() ?? 0.0;
-              final lon = (childVal['destLon'] as num?)?.toDouble() ?? 0.0;
-              final memberCount = membersSnapshot?.length ?? 0;
-              
-              bool isParticipating = true;
-              if (isMember && membersSnapshot != null) {
-                final myMemberData = (membersSnapshot[cleanMyId] ?? membersSnapshot[myId]) as Map?;
-                if (myMemberData != null) {
-                  isParticipating = myMemberData['isParticipating'] == true || myMemberData['isParticipating'] == null;
+    controller = StreamController<List<RoomInfo>>.broadcast(
+      onListen: () {
+        // ⚡ 1. Emit cached closed meets immediately (0ms UI latency!)
+        final cachedClosed = getCachedClosedMeets();
+        if (cachedClosed.isNotEmpty) {
+          controller.add(cachedClosed);
+        }
+
+        // ⚡ 2. Listen to Firebase for live active & newly closed rooms asynchronously
+        firebaseSub = _database.ref().child("meets").onValue.listen((event) {
+          final snapshot = event.snapshot;
+          List<RoomInfo> activeRooms = [];
+          Map<String, RoomInfo> closedRoomsMap = {
+            for (var r in getCachedClosedMeets()) r.roomCode: r
+          };
+
+          if (snapshot.value != null && snapshot.value is Map) {
+            final data = snapshot.value as Map;
+            data.forEach((roomCode, childVal) {
+              if (childVal is Map) {
+                final hostId = childVal['hostId']?.toString().trim();
+                final membersSnapshot = childVal['members'] as Map?;
+                
+                bool isHost = (hostId != null && hostId == cleanMyId);
+                bool isMember = (membersSnapshot != null && (membersSnapshot.containsKey(cleanMyId) || membersSnapshot.containsKey(myId)));
+
+                if (isHost || isMember) {
+                  final name = childVal['name']?.toString() ?? "이름 없음";
+                  final status = childVal['status']?.toString() ?? "ACTIVE";
+                  final lat = (childVal['destLat'] as num?)?.toDouble() ?? 0.0;
+                  final lon = (childVal['destLon'] as num?)?.toDouble() ?? 0.0;
+                  final memberCount = membersSnapshot?.length ?? 0;
+                  
+                  bool isParticipating = true;
+                  if (isMember && membersSnapshot != null) {
+                    final myMemberData = (membersSnapshot[cleanMyId] ?? membersSnapshot[myId]) as Map?;
+                    if (myMemberData != null) {
+                      isParticipating = myMemberData['isParticipating'] == true || myMemberData['isParticipating'] == null;
+                    }
+                  }
+
+                  final createdAt = (childVal['createdAt'] as num?)?.toInt() ?? 0;
+
+                  final roomObj = RoomInfo(
+                    roomCode: roomCode.toString(),
+                    name: name,
+                    destLat: lat,
+                    destLon: lon,
+                    memberCount: memberCount,
+                    status: status,
+                    isHost: isHost,
+                    isParticipating: isParticipating,
+                    createdAt: createdAt,
+                  );
+
+                  if (status == "CLOSED") {
+                    closedRoomsMap[roomObj.roomCode] = roomObj;
+                  } else {
+                    activeRooms.add(roomObj);
+                  }
                 }
               }
+            });
+          }
 
-              final createdAt = (childVal['createdAt'] as num?)?.toInt() ?? 0;
+          // Persist closed meets to local storage asynchronously
+          final updatedClosedList = closedRoomsMap.values.toList();
+          saveCachedClosedMeets(updatedClosedList);
 
-              rooms.add(RoomInfo(
-                roomCode: roomCode.toString(),
-                name: name,
-                destLat: lat,
-                destLon: lon,
-                memberCount: memberCount,
-                status: status,
-                isHost: isHost,
-                isParticipating: isParticipating,
-                createdAt: createdAt
-              ));
-            }
+          // Combine active + closed meets sorted by createdAt
+          final allRooms = [...activeRooms, ...updatedClosedList];
+          allRooms.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+          if (!controller.isClosed) {
+            controller.add(allRooms);
           }
         });
-      }
-      rooms.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return rooms;
-    });
+      },
+      onCancel: () {
+        firebaseSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 }
