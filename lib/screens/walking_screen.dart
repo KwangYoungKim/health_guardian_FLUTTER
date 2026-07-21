@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
 import 'package:health/health.dart';
 import '../services/health_repository.dart';
+import '../services/meet_repository.dart';
 import '../models/health_models.dart';
 import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -168,7 +169,20 @@ class _WalkingScreenState extends State<WalkingScreen> {
       timestamp: nowMs,
     ));
     
+    // Save to local daily path and trigger non-blocking async backend sync
     HealthRepository.instance.saveDailyPath(today, path);
+
+    // ⚡ Unified Location Standard: Forward exact same device location to active Meet room asynchronously
+    final activeRoomCode = MeetRepository.instance.getActiveRoomCode();
+    if (activeRoomCode != null && activeRoomCode.isNotEmpty) {
+      unawaited(
+        MeetRepository.instance.updateLocation(
+          activeRoomCode,
+          LatLng(position.latitude, position.longitude),
+        ),
+      );
+    }
+
     if (mounted) {
       setState(() {
         _lastKnownPosition = position;
