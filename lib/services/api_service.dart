@@ -283,4 +283,26 @@ class ApiService {
       return false;
     }
   }
+
+  static Future<List<Map<String, String>>> getRegisteredUsers() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/users/list'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (res.statusCode == 200) {
+        final List<dynamic> body = jsonDecode(res.body);
+        return body.map((u) {
+          final map = u as Map<String, dynamic>;
+          return {
+            'id': (map['id'] ?? map['userId'] ?? '').toString(),
+            'name': (map['nickname'] ?? map['name'] ?? '').toString(),
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('getRegisteredUsers error: $e');
+    }
+    return [];
+  }
 }

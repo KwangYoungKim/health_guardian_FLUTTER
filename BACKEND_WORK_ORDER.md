@@ -9,13 +9,25 @@
 
 ## 📌 1. REST API 사양 (Specification)
 
+### 1-1. 사용자 연쇄 삭제 API (`DELETE`)
+
 | 항목 | 상세 내용 |
 |---|---|
 | **HTTP Method** | `DELETE` |
-| **요청 URL** | `http://116.123.208.138:8099/api/users/{userId}` |
-| **Path Variable** | `{userId}` : 삭제 대상 사용자의 UUID (예: `ebd3a404-6780-43de-b058-60e33abdb9fa`) |
+| **요청 URL** | `http://116.123.208.138:8099/api/users/{userId}` 또는 `/api/users/nickname/{nickname}` |
+| **Path Variable** | `{userId}` UUID 또는 `{nickname}` 닉네임 |
 | **Request Header** | `Content-Type: application/json` |
-| **Response Format** | `application/json` |
+
+---
+
+### 1-2. 등록 사용자 전체 목록 조회 API (`GET`)
+
+| 항목 | 상세 내용 |
+|---|---|
+| **HTTP Method** | `GET` |
+| **요청 URL** | `http://116.123.208.138:8099/api/users/list` |
+| **Request Header** | `Accept: application/json` |
+| **Response Body** | `[{"id": "uuid-1", "nickname": "Heidi"}, {"id": "uuid-2", "nickname": "DragonKim"}]` |
 
 ### Response 예시
 - **성공 (200 OK)**:

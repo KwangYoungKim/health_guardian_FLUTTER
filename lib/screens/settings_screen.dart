@@ -34,6 +34,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  Future<List<Map<String, String>>> _getAllCombinedUsers() async {
+    final results = await Future.wait([
+      MeetRepository.instance.getAllFirebaseUsers(),
+      ApiService.getRegisteredUsers(),
+    ]);
+
+    final fbUsers = results[0];
+    final dbUsers = results[1];
+
+    final Map<String, Map<String, String>> merged = {};
+    for (var u in fbUsers) {
+      final id = u['id'] ?? '';
+      final name = u['name'] ?? '';
+      if (name.isNotEmpty) {
+        merged['${id}_$name'] = u;
+      }
+    }
+    for (var u in dbUsers) {
+      final id = u['id'] ?? '';
+      final name = u['name'] ?? '';
+      if (name.isNotEmpty) {
+        merged['${id}_$name'] = u;
+      }
+    }
+
+    final list = merged.values.toList();
+    list.sort((a, b) => a['name']!.compareTo(b['name']!));
+    return list;
+  }
+
   // 🛡️ Super Admin (DragonKim) One-Stop User Management Dialog
   Future<void> _showSuperAdminUserManagementDialog() async {
     final TextEditingController inputController = TextEditingController();
@@ -232,7 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 8),
 
                       FutureBuilder<List<Map<String, String>>>(
-                        future: MeetRepository.instance.getAllFirebaseUsers(),
+                        future: _getAllCombinedUsers(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
                             return const Padding(
@@ -533,7 +563,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: Colors.white),
                   title: const Text("버전 정보", style: TextStyle(color: Colors.white)),
-                  trailing: const Text("1.0.2", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+                  trailing: const Text("1.0.3", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
