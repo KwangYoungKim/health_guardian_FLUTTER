@@ -146,6 +146,27 @@ class MeetRepository {
     await _database.ref().child("users").child(targetUuid).child("invites").push().set(roomCode);
   }
 
+  Future<List<Map<String, String>>> getAllFirebaseUsers() async {
+    final event = await _database.ref().child("users").once();
+    final snapshot = event.snapshot;
+    List<Map<String, String>> users = [];
+    if (snapshot.value != null && snapshot.value is Map) {
+      final data = snapshot.value as Map<dynamic, dynamic>;
+      data.forEach((key, value) {
+        if (value is Map) {
+          final name = value['name'] as String? ?? '이름 없음';
+          users.add({'id': key.toString(), 'name': name});
+        }
+      });
+    }
+    users.sort((a, b) => a['name']!.compareTo(b['name']!));
+    return users;
+  }
+
+  Future<void> deleteFirebaseUserNode(String userId) async {
+    await _database.ref().child("users").child(userId).remove();
+  }
+
   Future<void> fetchUsers(Function(List<Map<String, String>>) onUsersFetched) async {
     final event = await _database.ref().child("users").once();
     final snapshot = event.snapshot;

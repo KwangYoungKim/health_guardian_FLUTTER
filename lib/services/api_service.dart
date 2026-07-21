@@ -254,4 +254,18 @@ class ApiService {
       return false;
     }
   }
+
+  static Future<bool> deleteUser(String userId, String nickname) async {
+    try {
+      final res = await http.delete(
+        Uri.parse('$baseUrl/users/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      print('deleteUser status: ${res.statusCode}');
+      return res.statusCode == 200;
+    } catch (e) {
+      print('deleteUser error: $e');
+      return false;
+    }
+  }
 }
