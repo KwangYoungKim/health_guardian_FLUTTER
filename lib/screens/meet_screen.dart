@@ -577,9 +577,9 @@ class _LobbyViewState extends State<LobbyView> {
             final markers = <Marker>[
               Marker(
                 point: dest!,
-                width: 40,
-                height: 40,
-                child: const Icon(Icons.stars, color: Colors.amber, size: 40),
+                width: 75,
+                height: 55,
+                child: buildSleekFlagMarker(label: "목적지"),
               ),
             ];
 
@@ -587,18 +587,33 @@ class _LobbyViewState extends State<LobbyView> {
 
             for (var m in members) {
               if (m.location.latitude != 0.0 && m.location.longitude != 0.0) {
+                final displayStr = m.name;
+                final calcWidth = (displayStr.length * 11.0 + 24.0).clamp(70.0, 240.0);
                 markers.add(
                   Marker(
                     point: m.location,
-                    width: 32,
-                    height: 32,
-                    child: CircleAvatar(
-                      backgroundColor: Color(m.color),
-                      radius: 12,
-                      child: Text(
-                        m.name.isNotEmpty ? m.name[0] : "?",
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
+                    width: calcWidth,
+                    height: 55,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Color(m.color), width: 1.5),
+                            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
+                          ),
+                          child: Text(
+                            displayStr,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Icon(Icons.person_pin_circle, color: Color(m.color), size: 28),
+                      ],
                     ),
                   ),
                 );
@@ -609,7 +624,14 @@ class _LobbyViewState extends State<LobbyView> {
                 polylines.add(
                   Polyline(
                     points: filteredPath,
-                    strokeWidth: 4.0,
+                    strokeWidth: 9.0,
+                    color: const Color(0xFF0F172A),
+                  ),
+                );
+                polylines.add(
+                  Polyline(
+                    points: filteredPath,
+                    strokeWidth: 5.0,
                     color: Color(m.color),
                   ),
                 );
