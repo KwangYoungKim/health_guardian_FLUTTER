@@ -398,14 +398,19 @@ class MeetRepository {
 
     // Check last path point to avoid duplicate zero-distance entries
     final lastPathSnap = await myRef.child("path").limitToLast(1).get();
-    if (lastPathSnap.exists && lastPathSnap.value is Map) {
-      final lastMap = (lastPathSnap.value as Map).values.first;
-      if (lastMap is Map) {
-        final lastLat = (lastMap['lat'] as num?)?.toDouble();
-        final lastLon = (lastMap['lon'] as num?)?.toDouble();
+    if (lastPathSnap.exists && lastPathSnap.value != null) {
+      dynamic lastVal = lastPathSnap.value;
+      if (lastVal is Map) {
+        lastVal = lastVal.values.first;
+      } else if (lastVal is List && lastVal.isNotEmpty) {
+        lastVal = lastVal.last;
+      }
+      if (lastVal is Map) {
+        final lastLat = (lastVal['lat'] as num?)?.toDouble();
+        final lastLon = (lastVal['lon'] as num?)?.toDouble();
         if (lastLat != null && lastLon != null) {
           final dist = Geolocator.distanceBetween(lastLat, lastLon, location.latitude, location.longitude);
-          if (dist < 1.5) return; // Skip pushing if user hasn't moved 1.5 meters
+          if (dist < 0.5) return; // Skip pushing if user hasn't moved 0.5 meters
         }
       }
     }

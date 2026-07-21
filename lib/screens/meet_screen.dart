@@ -1228,9 +1228,9 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
         forceLocationManager: false,
-        intervalDuration: const Duration(seconds: 3),
+        intervalDuration: const Duration(seconds: 1),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "🤝 Meet 실시간 위치 공유 중",
           notificationText: "모임 멤버들과 실시간 위치 및 이동 동선을 공유하고 있습니다.",
@@ -1241,7 +1241,7 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
     } else if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
         activityType: ActivityType.fitness,
         pauseLocationUpdatesAutomatically: false,
         allowBackgroundLocationUpdates: true,
@@ -1250,13 +1250,40 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
     } else {
       locationSettings = const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
       );
     }
 
     _locSub = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
       if (_roomStatus == "ACTIVE") {
-        widget.meetRepo.updateLocation(widget.roomCode, LatLng(position.latitude, position.longitude));
+        final myPos = LatLng(position.latitude, position.longitude);
+        widget.meetRepo.updateLocation(widget.roomCode, myPos);
+
+        if (mounted) {
+          final myId = widget.meetRepo.getCurrentUserId();
+          setState(() {
+            final idx = _members.indexWhere((m) => m.id == myId);
+            if (idx != -1) {
+              final old = _members[idx];
+              final updatedPath = List<LatLng>.from(old.path);
+              if (updatedPath.isEmpty ||
+                  Geolocator.distanceBetween(
+                    updatedPath.last.latitude, updatedPath.last.longitude,
+                    myPos.latitude, myPos.longitude
+                  ) > 0.5) {
+                updatedPath.add(myPos);
+              }
+              _members[idx] = MeetMember(
+                id: old.id,
+                name: old.name,
+                location: myPos,
+                color: old.color,
+                path: updatedPath,
+                isParticipating: old.isParticipating,
+              );
+            }
+          });
+        }
       }
     });
   }

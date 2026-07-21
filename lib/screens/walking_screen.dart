@@ -34,6 +34,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
   int _refreshTrigger = 0;
   String? _nickname;
   bool _isSyncing = false;
+  StateSetter? _mapDialogStateSetter;
 
   @override
   void initState() {
@@ -80,9 +81,9 @@ class _WalkingScreenState extends State<WalkingScreen> {
     if (defaultTargetPlatform == TargetPlatform.android) {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
         forceLocationManager: false,
-        intervalDuration: const Duration(seconds: 3),
+        intervalDuration: const Duration(seconds: 1),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: "👟 Smart Health 걷기 추적 중",
           notificationText: "백그라운드에서도 실시간 이동 경로를 촘촘하게 기록하고 있습니다.",
@@ -93,7 +94,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
     } else if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
         activityType: ActivityType.fitness,
         pauseLocationUpdatesAutomatically: false,
         allowBackgroundLocationUpdates: true,
@@ -102,7 +103,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
     } else {
       locationSettings = const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3,
+        distanceFilter: 1,
       );
     }
 
@@ -141,7 +142,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
   }
 
   void _handleLocationUpdate(Position position) {
-    if (position.accuracy > 50) return; // Ignore low accuracy (> 50m) GPS points
+    if (position.accuracy > 100) return; // Allow GPS accuracy up to 100m
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     var path = HealthRepository.instance.getDailyPath(today).toList();
     final nowMs = position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
@@ -154,8 +155,8 @@ class _WalkingScreenState extends State<WalkingScreen> {
           lastPoint.lat, lastPoint.lng,
           position.latitude, position.longitude,
         );
-        // Ignore duplicate jitter if moved less than 1.5 meters
-        if (dist < 1.5 && timeDiffSec < 10) return;
+        // Ignore duplicate jitter if moved less than 0.5 meters
+        if (dist < 0.5 && timeDiffSec < 5) return;
         // Only reject if dist > 500m AND time difference is under 30s (teleport spike)
         if (dist > 500 && timeDiffSec < 30) return;
       }
@@ -175,6 +176,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
           _refreshTrigger++;
         }
       });
+      _mapDialogStateSetter?.call(() {});
     }
   }
 
@@ -594,9 +596,23 @@ class _WalkingScreenState extends State<WalkingScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            _mapDialogStateSetter = setDialogState;
             final rawPathPoints = HealthRepository.instance.getDailyPath(_selectedDate);
             final pathPoints = _filterGlitchPathPoints(rawPathPoints);
             final memos = HealthRepository.instance.getMemos(_selectedDate);
+
+            // Construct live line points combining path history + live current position
+            List<LatLng> liveLinePoints = pathPoints.map((p) => LatLng(p.lat, p.lng)).toList();
+            if (_lastKnownPosition != null) {
+              final currentLatLng = LatLng(_lastKnownPosition!.latitude, _lastKnownPosition!.longitude);
+              if (liveLinePoints.isEmpty ||
+                  Geolocator.distanceBetween(
+                    liveLinePoints.last.latitude, liveLinePoints.last.longitude,
+                    currentLatLng.latitude, currentLatLng.longitude
+                  ) > 0.5) {
+                liveLinePoints.add(currentLatLng);
+              }
+            }
 
             return Dialog(
               backgroundColor: Colors.transparent,
@@ -619,7 +635,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
                             children: [
                               Text("$_selectedDate 걷기 경로", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 2),
-                              Text("기록된 위치: ${pathPoints.length}개", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
+                              Text("기록된 위치: ${liveLinePoints.length}개 (실시간 추적 중)", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
                             ],
                           ),
                         ),
@@ -650,8 +666,8 @@ class _WalkingScreenState extends State<WalkingScreen> {
                           ),
                           child: FlutterMap(
                             options: MapOptions(
-                              initialCenter: pathPoints.isNotEmpty 
-                                ? LatLng(pathPoints.last.lat, pathPoints.last.lng)
+                              initialCenter: liveLinePoints.isNotEmpty 
+                                ? liveLinePoints.last
                                 : memos.isNotEmpty
                                   ? LatLng(memos.last.lat, memos.last.lng)
                                   : _lastKnownPosition != null
@@ -664,24 +680,29 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                 userAgentPackageName: 'com.example.health_guardian_flutter',
                               ),
-                              if (pathPoints.length >= 2)
+                              if (liveLinePoints.length >= 2)
                                 PolylineLayer(
                                   polylines: [
                                     Polyline(
-                                      points: pathPoints.map((p) => LatLng(p.lat, p.lng)).toList(),
+                                      points: liveLinePoints,
+                                      color: const Color(0xFF0F172A),
+                                      strokeWidth: 9.0,
+                                    ),
+                                    Polyline(
+                                      points: liveLinePoints,
                                       color: const Color(0xFF00E5FF),
-                                      strokeWidth: 6.0,
+                                      strokeWidth: 5.0,
                                     ),
                                   ],
                                 ),
                               MarkerLayer(
                                 markers: [
-                                  if (pathPoints.isNotEmpty)
+                                  if (liveLinePoints.isNotEmpty)
                                     Marker(
-                                      point: LatLng(pathPoints.last.lat, pathPoints.last.lng),
+                                      point: liveLinePoints.first,
                                       width: 75,
                                       height: 55,
-                                      child: _buildSleekFlagMarker(label: "도착지"),
+                                      child: _buildSleekFlagMarker(label: "출발지"),
                                     ),
                                   if (_lastKnownPosition != null)
                                     Marker(
@@ -826,7 +847,9 @@ class _WalkingScreenState extends State<WalkingScreen> {
           }
         );
       }
-    );
+    ).then((_) {
+      _mapDialogStateSetter = null;
+    });
   }
 
   void _showSetGoalDialog() {

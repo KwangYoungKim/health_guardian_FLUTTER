@@ -563,7 +563,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: Colors.white),
                   title: const Text("버전 정보", style: TextStyle(color: Colors.white)),
-                  trailing: const Text("1.0.5", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+                  trailing: const Text("1.0.6", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
