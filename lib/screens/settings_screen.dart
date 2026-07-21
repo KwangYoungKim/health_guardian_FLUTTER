@@ -46,15 +46,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (dialogCtx, setDialogState) {
             return AlertDialog(
               backgroundColor: const Color(0xFF1E293B),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              contentPadding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: const Row(
                 children: [
-                  Icon(Icons.admin_panel_settings, color: Color(0xFF00E5FF), size: 26),
+                  Icon(Icons.admin_panel_settings, color: Color(0xFF00E5FF), size: 24),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       "슈퍼 관리자 사용자 원스톱 삭제",
-                      style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -62,10 +64,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               content: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.7,
+                  maxHeight: MediaQuery.of(context).size.height * 0.55,
                   maxWidth: double.maxFinite,
                 ),
                 child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,7 +533,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.info_outline, color: Colors.white),
                   title: const Text("버전 정보", style: TextStyle(color: Colors.white)),
-                  trailing: const Text("1.0.0", style: TextStyle(color: Colors.white54)),
+                  trailing: const Text("1.0.2", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
                 ),
               ],
             ),
