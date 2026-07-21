@@ -268,4 +268,19 @@ class ApiService {
       return false;
     }
   }
+
+  static Future<bool> deleteUserByNickname(String nickname) async {
+    try {
+      final encoded = Uri.encodeComponent(nickname.trim());
+      final res = await http.delete(
+        Uri.parse('$baseUrl/users/nickname/$encoded'),
+        headers: {'Accept': 'application/json'},
+      );
+      print('deleteUserByNickname status: ${res.statusCode}');
+      return res.statusCode == 200;
+    } catch (e) {
+      print('deleteUserByNickname error: $e');
+      return false;
+    }
+  }
 }
