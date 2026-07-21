@@ -13,6 +13,7 @@ import 'services/meet_repository.dart';
 
 import 'services/health_repository.dart';
 import 'services/notification_service.dart';
+import 'services/background_location_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -36,6 +37,7 @@ void main() async {
   await HealthRepository.instance.init();
   await MeetRepository.instance.init();
   await NotificationService.instance.init();
+  await BackgroundLocationService.instance.initializeService();
   
   runApp(const HealthGuardianApp());
 }
