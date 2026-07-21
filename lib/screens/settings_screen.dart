@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 🛡️ Super Admin (DragonKim) One-Stop User Management Dialog
   Future<void> _showSuperAdminUserManagementDialog() async {
     final TextEditingController inputController = TextEditingController();
+    String searchQuery = '';
 
     showDialog(
       context: context,
@@ -52,7 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "슈퍼 관리자 사용자 삭제",
+                      "슈퍼 관리자 사용자 원스톱 삭제",
                       style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -61,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               content: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.65,
+                  maxHeight: MediaQuery.of(context).size.height * 0.7,
                   maxWidth: double.maxFinite,
                 ),
                 child: SingleChildScrollView(
@@ -83,18 +84,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                "삭제할 닉네임을 직접 입력하거나 목록에서 선택하면 백엔드 DBMS와 Firebase에서 원스톱 삭제됩니다.",
+                                "삭제 대상 선택 시 백엔드 PostgreSQL DBMS와 Firebase에서 해당 정보가 동시 원스톱 삭제됩니다.",
                                 style: TextStyle(color: Colors.white70, fontSize: 11),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
 
-                      // 🏷️ Category 1: Direct Nickname Input Deletion
+                      // 🔍 2단계: 실시간 사용자 검색 및 입력
                       const Text(
-                        "🏷️ 삭제 대상 닉네임 직접 입력",
+                        "🔍 2단계: 사용자 검색 및 삭제 대상 닉네임 입력",
                         style: TextStyle(color: Color(0xFF00E5FF), fontSize: 13, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 6),
@@ -104,13 +105,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: TextField(
                               controller: inputController,
                               style: const TextStyle(color: Colors.white, fontSize: 14),
+                              onChanged: (val) {
+                                setDialogState(() {
+                                  searchQuery = val.trim();
+                                });
+                              },
                               decoration: InputDecoration(
-                                hintText: "예: Heidi, User1 등",
-                                hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                                hintText: "삭제할 닉네임 입력 또는 검색 (예: Heidi)",
+                                hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                                 filled: true,
                                 fillColor: const Color(0xFF0F172A),
                                 isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                prefixIcon: const Icon(Icons.search, color: Color(0xFF00E5FF), size: 18),
+                                suffixIcon: searchQuery.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear, color: Colors.white54, size: 16),
+                                        onPressed: () {
+                                          inputController.clear();
+                                          setDialogState(() {
+                                            searchQuery = '';
+                                          });
+                                        },
+                                      )
+                                    : null,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   borderSide: const BorderSide(color: Colors.white24),
@@ -126,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                             onPressed: () async {
@@ -142,9 +160,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 context: dialogCtx,
                                 builder: (c) => AlertDialog(
                                   backgroundColor: const Color(0xFF1E293B),
-                                  title: const Text("원스톱 삭제 확인", style: TextStyle(color: Colors.white, fontSize: 16)),
+                                  title: const Text("4단계: 원스톱 삭제 최종 승인", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                                   content: Text(
-                                    "닉네임 '$targetName' 계정 및 관련 데이터를 백엔드 PostgreSQL DBMS 및 Firebase에서 원스톱 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.",
+                                    "닉네임 '$targetName' 계정 및 모든 관련 데이터를 백엔드 PostgreSQL DBMS 및 Firebase에서 동시 원스톱 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.",
                                     style: const TextStyle(color: Colors.white70),
                                   ),
                                   actions: [
@@ -152,17 +170,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ElevatedButton(
                                       style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                                       onPressed: () => Navigator.pop(c, true),
-                                      child: const Text("원스톱 삭제 실행", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                      child: const Text("양쪽 DB 연쇄 삭제 실행", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                     ),
                                   ],
                                 ),
                               );
 
                               if (confirm == true) {
-                                // 1. Delete from Backend DBMS by Nickname
                                 await ApiService.deleteUserByNickname(targetName);
-
-                                // 2. Delete from Firebase if exists
                                 final fbUsers = await MeetRepository.instance.getAllFirebaseUsers();
                                 final match = fbUsers.where((u) => u['name']?.toLowerCase() == targetName.toLowerCase()).toList();
                                 for (var u in match) {
@@ -173,30 +188,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }
 
                                 inputController.clear();
-                                setDialogState(() {});
+                                setDialogState(() {
+                                  searchQuery = '';
+                                });
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text("'$targetName' 닉네임 계정이 백엔드 DBMS 및 Firebase에서 완전 원스톱 삭제되었습니다."),
+                                      content: Text("'$targetName' 계정이 백엔드 DBMS 및 Firebase에서 원스톱 삭제되었습니다."),
                                       backgroundColor: Colors.redAccent,
                                     ),
                                   );
                                 }
                               }
                             },
-                            child: const Text("원스톱 삭제", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text("원스톱 삭제", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
 
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Divider(color: Colors.white24),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
 
-                      // 📋 Category 2: Firebase / Registered Nickname Quick Selection List
-                      const Text(
-                        "📋 Firebase 등록 닉네임 목록",
-                        style: TextStyle(color: Color(0xFF00E5FF), fontSize: 13, fontWeight: FontWeight.bold),
+                      // 📋 3단계: 현재 사용자 리스트 출력 및 선택
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "📋 3단계: 등록 사용자 리스트 (선택 클릭)",
+                            style: TextStyle(color: Color(0xFF00E5FF), fontSize: 13, fontWeight: FontWeight.bold),
+                          ),
+                          if (searchQuery.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(color: const Color(0xFF00E5FF).withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
+                              child: Text("검색 중: '$searchQuery'", style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 10)),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 8),
 
@@ -213,15 +241,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             return Text("오류 발생: ${snapshot.error}", style: const TextStyle(color: Colors.redAccent, fontSize: 12));
                           }
                           final users = snapshot.data ?? [];
-                          if (users.isEmpty) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 16),
-                              child: Text("Firebase에 추가 등록된 닉네임이 없습니다.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                          final filteredUsers = users.where((u) {
+                            if (searchQuery.isEmpty) return true;
+                            final name = u['name']?.toLowerCase() ?? '';
+                            final id = u['id']?.toLowerCase() ?? '';
+                            final q = searchQuery.toLowerCase();
+                            return name.contains(q) || id.contains(q);
+                          }).toList();
+
+                          if (filteredUsers.isEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Text(
+                                searchQuery.isNotEmpty ? "'$searchQuery' 검색 조건에 맞는 사용자가 없습니다." : "등록된 추가 사용자 목록이 없습니다.",
+                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              ),
                             );
                           }
+
                           return Column(
                             mainAxisSize: MainAxisSize.min,
-                            children: users.map((user) {
+                            children: filteredUsers.map((user) {
                               final targetId = user['id'] ?? '';
                               final targetName = user['name'] ?? '';
                               final bool isSelf = (targetName == _nickname);
@@ -237,6 +277,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   dense: true,
                                   onTap: () {
                                     inputController.text = targetName;
+                                    setDialogState(() {
+                                      searchQuery = targetName;
+                                    });
                                   },
                                   leading: CircleAvatar(
                                     radius: 14,
@@ -282,9 +325,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               context: dialogCtx,
                                               builder: (c) => AlertDialog(
                                                 backgroundColor: const Color(0xFF1E293B),
-                                                title: const Text("원스톱 계정 삭제 확인", style: TextStyle(color: Colors.white, fontSize: 16)),
+                                                title: const Text("4단계: 원스톱 삭제 최종 승인", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                                                 content: Text(
-                                                  "사용자 '$targetName' (ID: $targetId) 계정을 백엔드 PostgreSQL DBMS 및 Firebase에서 동시 원스톱 삭제하시겠습니까?",
+                                                  "사용자 '$targetName' (ID: $targetId) 계정과 관련 데이터를 백엔드 PostgreSQL DBMS 및 Firebase에서 동시 원스톱 삭제하시겠습니까?",
                                                   style: const TextStyle(color: Colors.white70),
                                                 ),
                                                 actions: [
@@ -292,7 +335,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                   ElevatedButton(
                                                     style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                                                     onPressed: () => Navigator.pop(c, true),
-                                                    child: const Text("삭제 실행", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                                    child: const Text("양쪽 DB 연쇄 삭제 실행", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                                   ),
                                                 ],
                                               ),
@@ -304,7 +347,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               await MeetRepository.instance.deleteFirebaseUserNode(targetId);
 
                                               inputController.clear();
-                                              setDialogState(() {});
+                                              setDialogState(() {
+                                                searchQuery = '';
+                                              });
                                               if (mounted) {
                                                 ScaffoldMessenger.of(context).showSnackBar(
                                                   SnackBar(
@@ -321,7 +366,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               color: Colors.redAccent.withOpacity(0.8),
                                               borderRadius: BorderRadius.circular(6),
                                             ),
-                                            child: const Text("삭제", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                            child: const Text("선택 삭제", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                                           ),
                                         ),
                                 ),
