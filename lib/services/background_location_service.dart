@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -22,11 +23,10 @@ class BackgroundLocationService {
         autoStart: true,
         isForegroundMode: true,
         autoStartOnBoot: true,
-        notificationTitle: "👟 Smart Health 24시간 무중단 동선 추적",
-        notificationText: "앱이 종료되어도 백그라운드에서 실시간 이동 경로가 자동 수집됩니다.",
-        notificationIcon: 'mipmap/ic_launcher',
+        notificationChannelId: 'smart_health_location_service',
         initialNotificationTitle: "👟 Smart Health 24시간 무중단 동선 추적",
-        initialNotificationText: "서비스 준비 중...",
+        initialNotificationContent: "앱이 종료되어도 백그라운드에서 실시간 이동 경로가 자동 수집됩니다.",
+        foregroundNotificationId: 888,
       ),
       iosConfiguration: IosConfiguration(
         autoStart: true,
@@ -151,7 +151,7 @@ void onStartBackground(ServiceInstance service) async {
       if (await service.isForegroundService()) {
         service.setForegroundNotificationInfo(
           title: "👟 Smart Health 24시간 무중단 동선 추적",
-          text: "위치: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)} (자동 기록 중)",
+          content: "위치: ${position.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)} (자동 기록 중)",
         );
       }
     }
