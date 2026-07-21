@@ -676,6 +676,13 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                 ),
                               MarkerLayer(
                                 markers: [
+                                  if (pathPoints.isNotEmpty)
+                                    Marker(
+                                      point: LatLng(pathPoints.last.lat, pathPoints.last.lng),
+                                      width: 75,
+                                      height: 55,
+                                      child: _buildSleekFlagMarker(label: "도착지"),
+                                    ),
                                   if (_lastKnownPosition != null)
                                     Marker(
                                       point: LatLng(_lastKnownPosition!.latitude, _lastKnownPosition!.longitude),
@@ -699,15 +706,15 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                     ),
                                   ...memos.map((m) => Marker(
                                     point: LatLng(m.lat, m.lng),
-                                    width: 40,
-                                    height: 40,
+                                    width: 75,
+                                    height: 55,
                                     child: GestureDetector(
                                       onTap: () {
                                         showDialog(
                                           context: context,
                                           builder: (ctx) => AlertDialog(
                                             backgroundColor: const Color(0xFF1E293B),
-                                            title: Text("📍 ${m.time} 메모", style: const TextStyle(color: Colors.white)),
+                                            title: Text("🚩 ${m.time} 메모", style: const TextStyle(color: Colors.white)),
                                             content: Column(
                                               mainAxisSize: MainAxisSize.min,
                                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -743,7 +750,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
                                           ),
                                         );
                                       },
-                                      child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                                      child: _buildSleekFlagMarker(label: m.time),
                                     ),
                                   )).toList(),
                                 ],
@@ -859,6 +866,56 @@ class _WalkingScreenState extends State<WalkingScreen> {
           ),
         ],
       )
+    );
+  }
+
+  Widget _buildSleekFlagMarker({String label = "목적지"}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF1744), Color(0xFFC62828)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 3)),
+            ],
+            border: Border.all(color: Colors.white, width: 1.5),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.tour, color: Color(0xFFFFD700), size: 13),
+              const SizedBox(width: 3),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: -0.2),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          width: 2.5,
+          height: 9,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 2)],
+          ),
+        ),
+        Container(
+          width: 7,
+          height: 3,
+          decoration: BoxDecoration(
+            color: Colors.white70,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      ],
     );
   }
 

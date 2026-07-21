@@ -9,6 +9,56 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/meet_repository.dart';
 
+Widget buildSleekFlagMarker({String label = "목적지"}) {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF1744), Color(0xFFC62828)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 3)),
+          ],
+          border: Border.all(color: Colors.white, width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.tour, color: Color(0xFFFFD700), size: 13),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: -0.2),
+            ),
+          ],
+        ),
+      ),
+      Container(
+        width: 2.5,
+        height: 9,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 2)],
+        ),
+      ),
+      Container(
+        width: 7,
+        height: 3,
+        decoration: BoxDecoration(
+          color: Colors.white70,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    ],
+  );
+}
+
 enum MeetState { lobby, creatingRoom, editingRoom, inRoom }
 
 class MeetScreen extends StatefulWidget {
@@ -1024,9 +1074,9 @@ class _CreateOrEditRoomViewState extends State<CreateOrEditRoomView> {
                     markers: [
                       Marker(
                         point: _tempDest!,
-                        width: 44,
-                        height: 44,
-                        child: const Icon(Icons.flag, color: Colors.red, size: 40),
+                        width: 75,
+                        height: 55,
+                        child: buildSleekFlagMarker(label: "목적지"),
                       ),
                     ],
                   ),
@@ -1278,9 +1328,9 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
     markers.add(Marker(
       point: _tempDestination ?? _destination,
-      width: 44,
-      height: 44,
-      child: const Icon(Icons.flag, color: Colors.red, size: 40),
+      width: 75,
+      height: 55,
+      child: buildSleekFlagMarker(label: "목적지"),
     ));
 
     for (var member in _members) {
@@ -1323,10 +1373,11 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
       if (member.location.latitude != 0.0 || member.location.longitude != 0.0) {
         bool isMe = member.id == widget.meetRepo.getCurrentUserId();
         String displayStr = isMe ? "${member.name} (나)" : member.name;
+        final calcWidth = (displayStr.length * 11.0 + 24.0).clamp(70.0, 240.0);
         
         markers.add(Marker(
           point: member.location,
-          width: 90,
+          width: calcWidth,
           height: 55,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1335,15 +1386,15 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: Colors.black87,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Color(member.color), width: 1),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Color(member.color), width: 1.5),
+                  boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
                 ),
                 child: Text(
                   displayStr,
                   maxLines: 1,
                   softWrap: false,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
               Icon(Icons.person_pin_circle, color: Color(member.color), size: 28),
@@ -1492,7 +1543,7 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                     itemBuilder: (context, index) {
                       final m = _members[index];
                       return Padding(
-                        padding: const EdgeInsets.only(right: 14.0),
+                        padding: const EdgeInsets.only(right: 18.0),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1502,22 +1553,18 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
                               child: Text(m.name.isNotEmpty ? m.name[0] : "?", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                             ),
                             const SizedBox(height: 4),
-                            SizedBox(
-                              width: 60,
-                              child: Text(
-                                m.name,
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: m.isParticipating ? Colors.white : Colors.grey,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  decoration: m.isParticipating ? null : TextDecoration.lineThrough
-                                ),
+                            Text(
+                              m.name,
+                              maxLines: 1,
+                              softWrap: false,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: m.isParticipating ? Colors.white : Colors.grey,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                decoration: m.isParticipating ? null : TextDecoration.lineThrough
                               ),
-                            )
+                            ),
                           ],
                         ),
                       );
