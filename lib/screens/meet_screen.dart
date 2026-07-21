@@ -418,13 +418,36 @@ class _LobbyViewState extends State<LobbyView> {
                   const Text("Meet 이력", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: _myMeets.length,
-                      itemBuilder: (context, index) {
-                        final room = _myMeets[index];
-                        return _buildRoomItem(room);
-                      },
-                    ),
+                    child: _myMeets.isEmpty
+                        ? const Center(
+                            child: Text(
+                              "등록되거나 참여한 모임 이력이 없습니다.",
+                              style: TextStyle(color: Colors.white60, fontSize: 13),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: _myMeets.length,
+                            physics: const BouncingScrollPhysics(),
+                            itemBuilder: (context, index) {
+                              final room = _myMeets[index];
+                              return TweenAnimationBuilder<double>(
+                                key: ValueKey("room_${room.roomCode}_$index"),
+                                tween: Tween<double>(begin: 0.0, end: 1.0),
+                                duration: Duration(milliseconds: 280 + (index * 45).clamp(0, 350)),
+                                curve: Curves.easeOutCubic,
+                                builder: (context, animValue, child) {
+                                  return Opacity(
+                                    opacity: animValue,
+                                    child: Transform.translate(
+                                      offset: Offset(0, 16 * (1 - animValue)),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: _buildRoomItem(room),
+                              );
+                            },
+                          ),
                   )
                 ],
               ),
