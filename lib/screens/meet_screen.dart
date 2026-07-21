@@ -1024,9 +1024,23 @@ class _CreateOrEditRoomViewState extends State<CreateOrEditRoomView> {
                     markers: [
                       Marker(
                         point: _tempDest!,
-                        width: 40,
-                        height: 40,
-                        child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+                        width: 50,
+                        height: 50,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent,
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
+                              ),
+                              child: const Text("🚩 목적지", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                            const Icon(Icons.flag, color: Colors.red, size: 28),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1278,9 +1292,23 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
     markers.add(Marker(
       point: _tempDestination ?? _destination,
-      width: 40,
-      height: 40,
-      child: const Icon(Icons.location_on, color: Colors.red, size: 40),
+      width: 50,
+      height: 50,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.redAccent,
+              borderRadius: BorderRadius.circular(6),
+              boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 4)],
+            ),
+            child: const Text("🚩 목적지", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+          const Icon(Icons.flag, color: Colors.red, size: 28),
+        ],
+      ),
     ));
 
     for (var member in _members) {
@@ -1288,10 +1316,17 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
       final filteredMemberPath = filterGlitchLatLngPoints(member.path);
       if (filteredMemberPath.length >= 2) {
+        // 1. Dark Outline Polyline (배경 지도와 선명하게 분리해 주는 검은색 외곽선)
         polylines.add(Polyline(
           points: filteredMemberPath,
-          color: Color(member.color).withOpacity(0.9),
-          strokeWidth: 6.0,
+          color: const Color(0xFF0F172A),
+          strokeWidth: 9.0,
+        ));
+        // 2. Bright Vibrant Member Color Polyline (참여자 고유 색상 메인 선)
+        polylines.add(Polyline(
+          points: filteredMemberPath,
+          color: Color(member.color).withOpacity(1.0),
+          strokeWidth: 5.0,
         ));
       } else if (filteredMemberPath.length == 1 && (member.location.latitude != 0.0 || member.location.longitude != 0.0)) {
         final dist = Geolocator.distanceBetween(
@@ -1299,10 +1334,16 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
           member.location.latitude, member.location.longitude
         );
         if (dist > 0.5) {
+          final pts = [filteredMemberPath.first, member.location];
           polylines.add(Polyline(
-            points: [filteredMemberPath.first, member.location],
-            color: Color(member.color).withOpacity(0.9),
-            strokeWidth: 6.0,
+            points: pts,
+            color: const Color(0xFF0F172A),
+            strokeWidth: 9.0,
+          ));
+          polylines.add(Polyline(
+            points: pts,
+            color: Color(member.color).withOpacity(1.0),
+            strokeWidth: 5.0,
           ));
         }
       }
