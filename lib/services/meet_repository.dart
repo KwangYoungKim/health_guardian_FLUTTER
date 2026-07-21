@@ -207,15 +207,25 @@ class MeetRepository {
               final color = (value['color'] as num?)?.toInt() ?? 0xFF00E5FF;
               
               List<LatLng> pathList = [];
-              if (value['path'] is Map) {
-                final pathMap = value['path'] as Map;
-                final sortedKeys = pathMap.keys.map((k) => k.toString()).toList()..sort();
+              final rawPath = value['path'];
+              if (rawPath is Map) {
+                final sortedKeys = rawPath.keys.map((k) => k.toString()).toList()..sort();
                 for (var pKey in sortedKeys) {
-                  final pVal = pathMap[pKey];
+                  final pVal = rawPath[pKey];
                   if (pVal is Map) {
                     final pLat = (pVal['lat'] as num?)?.toDouble();
                     final pLon = (pVal['lon'] as num?)?.toDouble();
-                    if (pLat != null && pLon != null) {
+                    if (pLat != null && pLon != null && pLat != 0.0 && pLon != 0.0) {
+                      pathList.add(LatLng(pLat, pLon));
+                    }
+                  }
+                }
+              } else if (rawPath is List) {
+                for (var pVal in rawPath) {
+                  if (pVal is Map) {
+                    final pLat = (pVal['lat'] as num?)?.toDouble();
+                    final pLon = (pVal['lon'] as num?)?.toDouble();
+                    if (pLat != null && pLon != null && pLat != 0.0 && pLon != 0.0) {
                       pathList.add(LatLng(pLat, pLon));
                     }
                   }
@@ -320,15 +330,25 @@ class MeetRepository {
               final color = (value['color'] as num?)?.toInt() ?? 0xFF00E5FF;
               
               List<LatLng> pathList = [];
-              if (value['path'] is Map) {
-                final pathMap = value['path'] as Map;
-                final sortedKeys = pathMap.keys.map((k) => k.toString()).toList()..sort();
+              final rawPath = value['path'];
+              if (rawPath is Map) {
+                final sortedKeys = rawPath.keys.map((k) => k.toString()).toList()..sort();
                 for (var pKey in sortedKeys) {
-                  final pVal = pathMap[pKey];
+                  final pVal = rawPath[pKey];
                   if (pVal is Map) {
                     final pLat = (pVal['lat'] as num?)?.toDouble();
                     final pLon = (pVal['lon'] as num?)?.toDouble();
-                    if (pLat != null && pLon != null) {
+                    if (pLat != null && pLon != null && pLat != 0.0 && pLon != 0.0) {
+                      pathList.add(LatLng(pLat, pLon));
+                    }
+                  }
+                }
+              } else if (rawPath is List) {
+                for (var pVal in rawPath) {
+                  if (pVal is Map) {
+                    final pLat = (pVal['lat'] as num?)?.toDouble();
+                    final pLon = (pVal['lon'] as num?)?.toDouble();
+                    if (pLat != null && pLon != null && pLat != 0.0 && pLon != 0.0) {
                       pathList.add(LatLng(pLat, pLon));
                     }
                   }

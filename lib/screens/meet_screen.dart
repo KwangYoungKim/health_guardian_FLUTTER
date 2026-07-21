@@ -620,17 +620,36 @@ class _LobbyViewState extends State<LobbyView> {
               }
 
               final filteredPath = filterGlitchLatLngPoints(m.path);
-              if (filteredPath.length > 1) {
+              List<LatLng> drawPoints = [];
+              if (filteredPath.length >= 2) {
+                drawPoints = filteredPath;
+              } else if (filteredPath.length == 1 && (m.location.latitude != 0.0 || m.location.longitude != 0.0)) {
+                final dist = Geolocator.distanceBetween(
+                  filteredPath.first.latitude, filteredPath.first.longitude,
+                  m.location.latitude, m.location.longitude
+                );
+                if (dist > 0.5) {
+                  drawPoints = [filteredPath.first, m.location];
+                } else if (dest.latitude != 0.0 && dest.longitude != 0.0) {
+                  drawPoints = [filteredPath.first, dest];
+                }
+              } else if (m.location.latitude != 0.0 || m.location.longitude != 0.0) {
+                if (dest.latitude != 0.0 && dest.longitude != 0.0) {
+                  drawPoints = [m.location, dest];
+                }
+              }
+
+              if (drawPoints.length >= 2) {
                 polylines.add(
                   Polyline(
-                    points: filteredPath,
+                    points: drawPoints,
                     strokeWidth: 9.0,
                     color: const Color(0xFF0F172A),
                   ),
                 );
                 polylines.add(
                   Polyline(
-                    points: filteredPath,
+                    points: drawPoints,
                     strokeWidth: 5.0,
                     color: Color(m.color),
                   ),
