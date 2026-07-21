@@ -59,6 +59,8 @@
 	<string>모임 기능에서 현재 위치를 공유하기 위해 위치 권한이 필요합니다.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>백그라운드에서도 위치 기반 기능을 사용하기 위해 권한이 필요합니다.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>앱이 백그라운드에 있을 때도 걷기 이동경로를 촘촘하게 기록하기 위해 위치 권한이 필요합니다.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>걸음 수 측정을 위해 모션 센서 접근 권한이 필요합니다.</string>
 	<key>UIBackgroundModes</key>

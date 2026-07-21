@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:geolocator/geolocator.dart';
@@ -24,21 +25,21 @@ class WalkingScreen extends StatefulWidget {
 class _WalkingScreenState extends State<WalkingScreen> {
   bool _isWeekly = true;
   String _selectedDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-  DateTime _viewingWeekStart = _getStartOfWeek(DateTime.now());
-  DateTime _viewingMonthCal = DateTime(DateTime.now().year, DateTime.now().month, 1);
-  int _refreshTrigger = 0;
-  bool _isSyncing = false;
-
+  DateTime _viewingWeekStart = DateTime.now().subtract(Duration(days: DateTime.now().weekday % 7));
+  DateTime _viewingMonthCal = DateTime.now();
+  
   StreamSubscription<StepCount>? _stepCountStream;
   StreamSubscription<Position>? _positionStream;
   Position? _lastKnownPosition;
+  int _refreshTrigger = 0;
   String? _nickname;
+  bool _isSyncing = false;
 
   @override
   void initState() {
     super.initState();
     _loadNickname();
-    _initPermissions();
+    _requestPermissionAndInit();
   }
 
   Future<void> _loadNickname() async {
@@ -50,43 +51,12 @@ class _WalkingScreenState extends State<WalkingScreen> {
     }
   }
 
-  static DateTime _getStartOfWeek(DateTime date) {
-    int daysToSubtract = date.weekday % 7; // Sunday is 0 in Android, but in Dart Monday is 1, Sunday is 7
-    if (date.weekday == 7) daysToSubtract = 0; // Sunday
-    return DateTime(date.year, date.month, date.day - daysToSubtract);
-  }
-
-  Future<void> _initPermissions() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return; 
-    }
-
-    permission = await Geolocator.checkPermission();
+  Future<void> _requestPermissionAndInit() async {
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return;
-      }
     }
-
-    if (permission == LocationPermission.deniedForever) {
-      return;
-    }
-
-    try {
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
-      if (mounted) {
-        setState(() {
-          _lastKnownPosition = pos;
-        });
-      }
-    } catch (_) {}
-
-    // Request Activity Recognition permission on Android
+    
     if (Platform.isAndroid) {
       try {
         const channel = MethodChannel('com.example.health_guardian_flutter/ringtone_picker');
@@ -106,11 +76,38 @@ class _WalkingScreenState extends State<WalkingScreen> {
       print("Pedometer error: $error");
     });
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 5, 
-      ),
+        distanceFilter: 3,
+        forceLocationManager: false,
+        intervalDuration: const Duration(seconds: 3),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "👟 Smart Health 걷기 추적 중",
+          notificationText: "백그라운드에서도 실시간 이동 경로를 촘촘하게 기록하고 있습니다.",
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      );
+    }
+
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((Position? position) {
       if (position != null) {
         _handleLocationUpdate(position);
@@ -157,6 +154,8 @@ class _WalkingScreenState extends State<WalkingScreen> {
           lastPoint.lat, lastPoint.lng,
           position.latitude, position.longitude,
         );
+        // Ignore duplicate jitter if moved less than 1.5 meters
+        if (dist < 1.5 && timeDiffSec < 10) return;
         // Only reject if dist > 500m AND time difference is under 30s (teleport spike)
         if (dist > 500 && timeDiffSec < 30) return;
       }

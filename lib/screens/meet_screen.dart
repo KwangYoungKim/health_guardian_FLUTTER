@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -1132,10 +1133,37 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
 
     if (permission == LocationPermission.deniedForever) return;
 
-    _locSub = Geolocator.getPositionStream(locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    )).listen((Position position) {
+    LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        forceLocationManager: false,
+        intervalDuration: const Duration(seconds: 3),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: "🤝 Meet 실시간 위치 공유 중",
+          notificationText: "모임 멤버들과 실시간 위치 및 이동 동선을 공유하고 있습니다.",
+          notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+        activityType: ActivityType.fitness,
+        pauseLocationUpdatesAutomatically: false,
+        allowBackgroundLocationUpdates: true,
+        showBackgroundLocationIndicator: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      );
+    }
+
+    _locSub = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
       if (_roomStatus == "ACTIVE") {
         widget.meetRepo.updateLocation(widget.roomCode, LatLng(position.latitude, position.longitude));
       }
@@ -1263,8 +1291,20 @@ class _InRoomLiveMapState extends State<InRoomLiveMap> {
         polylines.add(Polyline(
           points: filteredMemberPath,
           color: Color(member.color).withOpacity(0.9),
-          strokeWidth: 5.0,
+          strokeWidth: 6.0,
         ));
+      } else if (filteredMemberPath.length == 1 && (member.location.latitude != 0.0 || member.location.longitude != 0.0)) {
+        final dist = Geolocator.distanceBetween(
+          filteredMemberPath.first.latitude, filteredMemberPath.first.longitude,
+          member.location.latitude, member.location.longitude
+        );
+        if (dist > 0.5) {
+          polylines.add(Polyline(
+            points: [filteredMemberPath.first, member.location],
+            color: Color(member.color).withOpacity(0.9),
+            strokeWidth: 6.0,
+          ));
+        }
       }
 
       if (member.location.latitude != 0.0 || member.location.longitude != 0.0) {

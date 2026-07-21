@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
@@ -336,6 +337,7 @@ class MeetRepository {
   Future<void> updateLocation(String roomCode, LatLng location) async {
     final myId = getCurrentUserId();
     if (myId == null) return;
+    if (location.latitude == 0.0 && location.longitude == 0.0) return;
 
     final myRef = _database.ref().child("meets").child(roomCode).child("members").child(myId);
 
@@ -353,9 +355,24 @@ class MeetRepository {
       await myRef.child("color").set(_colors[Random().nextInt(_colors.length)]);
     }
 
+    // Check last path point to avoid duplicate zero-distance entries
+    final lastPathSnap = await myRef.child("path").limitToLast(1).get();
+    if (lastPathSnap.exists && lastPathSnap.value is Map) {
+      final lastMap = (lastPathSnap.value as Map).values.first;
+      if (lastMap is Map) {
+        final lastLat = (lastMap['lat'] as num?)?.toDouble();
+        final lastLon = (lastMap['lon'] as num?)?.toDouble();
+        if (lastLat != null && lastLon != null) {
+          final dist = Geolocator.distanceBetween(lastLat, lastLon, location.latitude, location.longitude);
+          if (dist < 1.5) return; // Skip pushing if user hasn't moved 1.5 meters
+        }
+      }
+    }
+
     final pathUpdates = {
       "lat": location.latitude,
-      "lon": location.longitude
+      "lon": location.longitude,
+      "ts": DateTime.now().millisecondsSinceEpoch
     };
     await myRef.child("path").push().set(pathUpdates);
   }
