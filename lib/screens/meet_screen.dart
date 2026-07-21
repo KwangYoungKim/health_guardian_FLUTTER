@@ -296,6 +296,8 @@ class _LobbyViewState extends State<LobbyView> {
   @override
   void initState() {
     super.initState();
+    // ⚡ Synchronously load cached room history so UI renders INSTANTLY (0ms)
+    _myMeets = widget.meetRepo.getCachedClosedMeets();
     _meetsSub = widget.meetRepo.observeMyMeets().listen((rooms) {
       if (mounted) {
         setState(() {

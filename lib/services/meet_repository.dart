@@ -307,6 +307,21 @@ class MeetRepository {
       };
       
       await _database.ref().child("meets").child(roomCode).child("members").child(hostId).set(memberData);
+      
+      // Index to user_meets for instant 0ms history query
+      final roomInfoObj = RoomInfo(
+        roomCode: roomCode,
+        name: name,
+        destLat: destination.latitude,
+        destLon: destination.longitude,
+        memberCount: 1,
+        status: "ACTIVE",
+        isHost: true,
+        isParticipating: true,
+        createdAt: roomData["createdAt"] as int,
+      );
+      _database.ref().child("user_meets").child(hostId.trim()).child(roomCode).set(roomInfoObj.toJson());
+
       await setActiveRoomCode(roomCode);
       await setParticipatingRoom(roomCode, true);
       onComplete(roomCode);
@@ -320,6 +335,25 @@ class MeetRepository {
     if (myId == null) return const Stream.empty();
 
     setActiveRoomCode(roomCode);
+
+    // Sync to user_meets for instant history query
+    _database.ref().child("meets").child(roomCode).get().then((snapshot) {
+      if (snapshot.exists && snapshot.value is Map) {
+        final val = snapshot.value as Map;
+        final roomObj = RoomInfo(
+          roomCode: roomCode,
+          name: val['name']?.toString() ?? "모임",
+          destLat: (val['destLat'] as num?)?.toDouble() ?? 0.0,
+          destLon: (val['destLon'] as num?)?.toDouble() ?? 0.0,
+          memberCount: (val['members'] as Map?)?.length ?? 1,
+          status: val['status']?.toString() ?? "ACTIVE",
+          isHost: val['hostId']?.toString().trim() == myId.trim(),
+          isParticipating: true,
+          createdAt: (val['createdAt'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
+        );
+        _database.ref().child("user_meets").child(myId.trim()).child(roomCode).set(roomObj.toJson());
+      }
+    });
 
     final membersRef = _database.ref().child("meets").child(roomCode).child("members");
 
@@ -501,6 +535,7 @@ class MeetRepository {
     try {
       await _database.ref().child("meets").child(roomCode).set(null);
       await _database.ref().child("meets").child(roomCode).remove();
+      await _database.ref().child("user_meets").child(myId.trim()).child(roomCode).remove();
     } catch (e) {
       // Ignore if node already removed
     }
@@ -528,10 +563,18 @@ class MeetRepository {
 
   Future<void> changeRoomStatus(String roomCode, String newStatus) async {
     await _database.ref().child("meets").child(roomCode).child("status").set(newStatus);
+    final myId = getCurrentUserId();
+    if (myId != null) {
+      _database.ref().child("user_meets").child(myId.trim()).child(roomCode).child("status").set(newStatus);
+    }
   }
 
   Future<void> changeRoomName(String roomCode, String newName) async {
     await _database.ref().child("meets").child(roomCode).child("name").set(newName);
+    final myId = getCurrentUserId();
+    if (myId != null) {
+      _database.ref().child("user_meets").child(myId.trim()).child(roomCode).child("name").set(newName);
+    }
   }
 
   Stream<String> observeRoomStatus(String roomCode) {
@@ -576,81 +619,113 @@ class MeetRepository {
     late StreamController<List<RoomInfo>> controller;
     StreamSubscription? firebaseSub;
 
+    void processAndEmit(Map<dynamic, dynamic> meetsMap) {
+      List<RoomInfo> activeRooms = [];
+      Map<String, RoomInfo> closedRoomsMap = {
+        for (var r in getCachedClosedMeets()) r.roomCode: r
+      };
+
+      meetsMap.forEach((roomCode, childVal) {
+        if (childVal is Map) {
+          final hostId = childVal['hostId']?.toString().trim();
+          final membersSnapshot = childVal['members'] as Map?;
+
+          bool isHost = (hostId != null && hostId == cleanMyId);
+          bool isMember = (membersSnapshot != null && (membersSnapshot.containsKey(cleanMyId) || membersSnapshot.containsKey(myId)));
+
+          if (isHost || isMember) {
+            final name = childVal['name']?.toString() ?? "이름 없음";
+            final status = childVal['status']?.toString() ?? "ACTIVE";
+            final lat = (childVal['destLat'] as num?)?.toDouble() ?? 0.0;
+            final lon = (childVal['destLon'] as num?)?.toDouble() ?? 0.0;
+            final memberCount = membersSnapshot?.length ?? 0;
+
+            bool isParticipating = true;
+            if (isMember && membersSnapshot != null) {
+              final myMemberData = (membersSnapshot[cleanMyId] ?? membersSnapshot[myId]) as Map?;
+              if (myMemberData != null) {
+                isParticipating = myMemberData['isParticipating'] == true || myMemberData['isParticipating'] == null;
+              }
+            }
+
+            final createdAt = (childVal['createdAt'] as num?)?.toInt() ?? 0;
+
+            final roomObj = RoomInfo(
+              roomCode: roomCode.toString(),
+              name: name,
+              destLat: lat,
+              destLon: lon,
+              memberCount: memberCount,
+              status: status,
+              isHost: isHost,
+              isParticipating: isParticipating,
+              createdAt: createdAt,
+            );
+
+            if (status == "CLOSED") {
+              closedRoomsMap[roomObj.roomCode] = roomObj;
+            } else {
+              activeRooms.add(roomObj);
+            }
+
+            // Sync index to user_meets node
+            _database.ref().child("user_meets").child(cleanMyId).child(roomCode.toString()).set(roomObj.toJson());
+          }
+        }
+      });
+
+      final updatedClosedList = closedRoomsMap.values.toList();
+      saveCachedClosedMeets(updatedClosedList);
+
+      final allRooms = [...activeRooms, ...updatedClosedList];
+      allRooms.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      if (!controller.isClosed) {
+        controller.add(allRooms);
+      }
+    }
+
     controller = StreamController<List<RoomInfo>>.broadcast(
       onListen: () {
-        // ⚡ 1. Emit cached closed meets immediately (0ms UI latency!)
+        // ⚡ 1. Synchronously emit cached closed meets immediately (0ms UI latency!)
         final cachedClosed = getCachedClosedMeets();
         if (cachedClosed.isNotEmpty) {
           controller.add(cachedClosed);
         }
 
-        // ⚡ 2. Listen to Firebase for live active & newly closed rooms asynchronously
-        firebaseSub = _database.ref().child("meets").onValue.listen((event) {
+        // ⚡ 2. Listen to user_meets index for super fast 50ms responses
+        final userMeetsRef = _database.ref().child("user_meets").child(cleanMyId);
+        firebaseSub = userMeetsRef.onValue.listen((event) {
           final snapshot = event.snapshot;
-          List<RoomInfo> activeRooms = [];
-          Map<String, RoomInfo> closedRoomsMap = {
-            for (var r in getCachedClosedMeets()) r.roomCode: r
-          };
-
-          if (snapshot.value != null && snapshot.value is Map) {
+          if (snapshot.exists && snapshot.value is Map) {
             final data = snapshot.value as Map;
+            List<RoomInfo> roomList = [];
+            List<RoomInfo> closedRooms = [];
+
             data.forEach((roomCode, childVal) {
               if (childVal is Map) {
-                final hostId = childVal['hostId']?.toString().trim();
-                final membersSnapshot = childVal['members'] as Map?;
-                
-                bool isHost = (hostId != null && hostId == cleanMyId);
-                bool isMember = (membersSnapshot != null && (membersSnapshot.containsKey(cleanMyId) || membersSnapshot.containsKey(myId)));
-
-                if (isHost || isMember) {
-                  final name = childVal['name']?.toString() ?? "이름 없음";
-                  final status = childVal['status']?.toString() ?? "ACTIVE";
-                  final lat = (childVal['destLat'] as num?)?.toDouble() ?? 0.0;
-                  final lon = (childVal['destLon'] as num?)?.toDouble() ?? 0.0;
-                  final memberCount = membersSnapshot?.length ?? 0;
-                  
-                  bool isParticipating = true;
-                  if (isMember && membersSnapshot != null) {
-                    final myMemberData = (membersSnapshot[cleanMyId] ?? membersSnapshot[myId]) as Map?;
-                    if (myMemberData != null) {
-                      isParticipating = myMemberData['isParticipating'] == true || myMemberData['isParticipating'] == null;
-                    }
-                  }
-
-                  final createdAt = (childVal['createdAt'] as num?)?.toInt() ?? 0;
-
-                  final roomObj = RoomInfo(
-                    roomCode: roomCode.toString(),
-                    name: name,
-                    destLat: lat,
-                    destLon: lon,
-                    memberCount: memberCount,
-                    status: status,
-                    isHost: isHost,
-                    isParticipating: isParticipating,
-                    createdAt: createdAt,
-                  );
-
-                  if (status == "CLOSED") {
-                    closedRoomsMap[roomObj.roomCode] = roomObj;
-                  } else {
-                    activeRooms.add(roomObj);
-                  }
+                final room = RoomInfo.fromJson(Map<String, dynamic>.from(childVal));
+                roomList.add(room);
+                if (room.status == "CLOSED") {
+                  closedRooms.add(room);
                 }
               }
             });
-          }
 
-          // Persist closed meets to local storage asynchronously
-          final updatedClosedList = closedRoomsMap.values.toList();
-          saveCachedClosedMeets(updatedClosedList);
+            roomList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            saveCachedClosedMeets(closedRooms);
 
-          // Combine active + closed meets sorted by createdAt
-          final allRooms = [...activeRooms, ...updatedClosedList];
-          allRooms.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-          if (!controller.isClosed) {
-            controller.add(allRooms);
+            if (!controller.isClosed) {
+              controller.add(roomList);
+            }
+          } else {
+            // Fallback scan of meets node to index older meets
+            _database.ref().child("meets").once().then((meetsEvent) {
+              final meetsSnap = meetsEvent.snapshot;
+              if (meetsSnap.exists && meetsSnap.value is Map) {
+                processAndEmit(meetsSnap.value as Map);
+              }
+            });
           }
         });
       },
