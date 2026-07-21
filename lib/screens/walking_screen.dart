@@ -143,7 +143,7 @@ class _WalkingScreenState extends State<WalkingScreen> {
   }
 
   void _handleLocationUpdate(Position position) {
-    if (position.accuracy > 100) return; // Allow GPS accuracy up to 100m
+    if (position.accuracy > 30) return; // Ignore coarse GPS noise > 30m accuracy
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     var path = HealthRepository.instance.getDailyPath(today).toList();
     final nowMs = position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
@@ -156,9 +156,9 @@ class _WalkingScreenState extends State<WalkingScreen> {
           lastPoint.lat, lastPoint.lng,
           position.latitude, position.longitude,
         );
-        // Ignore duplicate jitter if moved less than 0.5 meters
-        if (dist < 0.5 && timeDiffSec < 5) return;
-        // Only reject if dist > 500m AND time difference is under 30s (teleport spike)
+        // ⚡ Stationary Filter: Ignore stationary jitter (< 2.0m movement within 5 minutes)
+        if (dist < 2.0 && timeDiffSec < 300) return;
+        // ⚡ Glitch Rejection: Reject teleport spikes (>500m in <30s)
         if (dist > 500 && timeDiffSec < 30) return;
       }
     }

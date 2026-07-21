@@ -97,7 +97,8 @@ void onStartBackground(ServiceInstance service) async {
   }
 
   Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) async {
-    if (position.accuracy > 100) return;
+    // 1. Ignore coarse GPS noise (indoor jitter > 30m accuracy)
+    if (position.accuracy > 30) return;
 
     final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
     final nowMs = position.timestamp?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch;
@@ -120,7 +121,9 @@ void onStartBackground(ServiceInstance service) async {
           lastPoint.lat, lastPoint.lng,
           position.latitude, position.longitude,
         );
-        if (dist < 0.5 && timeDiffSec < 5) return;
+        // ⚡ 2. Stationary Filter: Completely ignore stationary jitter (less than 2.0m movement within 5 minutes)
+        if (dist < 2.0 && timeDiffSec < 300) return;
+        // ⚡ 3. Glitch Rejection: Reject teleport spikes (>500m in <30s)
         if (dist > 500 && timeDiffSec < 30) return;
       }
     }
